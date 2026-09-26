@@ -1,5 +1,5 @@
 ---
-title: Things worth keeping
+title: "Things to enjoy"
 date: 2026-07-22 18:12
 ---
 
