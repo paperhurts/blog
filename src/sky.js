@@ -89,17 +89,18 @@
   });
   let shooters = [];
 
-  const hills = [0, 1, 2].map(i => {
-    const base = [0.79, 0.845, 0.915][i], amp = [0.034, 0.027, 0.022][i];
-    const waves = Array.from({ length: 4 }, (_, k) => ({ f: (1 + k * 1.6 + rnd()) * (1 + i * 0.6), p: rnd() * TAU, a: amp / (k + 1) }));
-    const trees = [];
-    if (i > 0) {
-      const n = i === 1 ? 28 : 12;
-      for (let k = 0; k < n; k++) trees.push({ x: rnd(), h: (i === 1 ? 0.02 : 0.032) * (0.6 + rnd() * 0.8) });
-    }
-    return { base, waves, trees };
-  });
-  const hillY = (hl, u) => { let y = hl.base; for (const w of hl.waves) y += Math.sin(u * w.f * Math.PI + w.p) * w.a; return y; };
+  // The Gulf coast. Open water runs to the horizon on the right, where the sun goes down; on the
+  // left, a far hammock line, a nearer key of mangroves and palms, and a beach in front.
+  // Heights are fractions of the screen height; u runs 0..1 across it.
+  const waves = (n, amp) => Array.from({ length: n }, (_, k) => ({ f: 1 + k * 1.7 + rnd(), p: rnd() * TAU, a: amp / (k + 1) }));
+  const waveY = (ws, u) => { let y = 0; for (const w of ws) y += Math.sin(u * w.f * Math.PI + w.p) * w.a; return y; };
+  const clumps = (n, u0, u1, r0, r1) => Array.from({ length: n }, () => ({ u: u0 + rnd() * (u1 - u0), r: r0 + rnd() * (r1 - r0) }));
+  const palms = (n, u0, u1, h0, h1) => Array.from({ length: n }, () => ({ u: u0 + rnd() * (u1 - u0), h: h0 + rnd() * (h1 - h0), lean: (rnd() - 0.5) * 0.5, ph: rnd() * TAU }));
+  const far = { ws: waves(3, 0.003), clumps: clumps(40, -0.01, 0.46, 0.004, 0.011), palms: palms(8, 0.02, 0.42, 0.02, 0.034) };
+  const key = { ws: waves(3, 0.004), clumps: clumps(26, -0.02, 0.3, 0.006, 0.016), palms: palms(5, 0.03, 0.26, 0.05, 0.085) };
+  const beach = { ws: waves(4, 0.01), tufts: Array.from({ length: 30 }, () => ({ u: rnd() * 0.5, h: 0.012 + rnd() * 0.018, ph: rnd() * TAU })) };
+  // the big palms stand in the foreground on the right, rooted below the bottom of the screen
+  const bigPalms = [{ u: 0.935, base: 1.07, h: 0.6, lean: -0.32, ph: 0 }, { u: 1.01, base: 1.05, h: 0.44, lean: 0.14, ph: 2.1 }];
 
   function makeCloud(i) {
     const puffs = [];
@@ -217,9 +218,15 @@ void main() {
     g.fillStyle = r; g.fillRect(0, 0, 48, 48);
   }
 
-  // the lake: in front of the far hills, behind the near shore, which slopes into it on the right
-  const WATER = 0.872;
-  const bankY = u => hillY(hills[2], u) + smooth(0.3, 0.62, u) * 0.16;
+  // the sea reaches all the way to the horizon; each shore thins out into it toward the right
+  const WATER = 0.835, KEY = WATER + 0.03; // KEY: where the near key meets the water
+  far.base = WATER; far.thick = 0.011; far.taper = [0.34, 0.5];
+  key.base = KEY; key.thick = 0.013; key.taper = [0.22, 0.34];
+  const taper = (isle, u) => 1 - smooth(isle.taper[0], isle.taper[1], u);
+  const shoreTop = (isle, u) => isle.base - (isle.thick + waveY(isle.ws, u)) * taper(isle, u);
+  const beachY = u => 0.93 + waveY(beach.ws, u) + smooth(0.26, 0.56, u) * 0.12;
+  let flock = null, flockT = 10;
+  const boat = { u: Math.random() };
   const glints = Array.from({ length: 240 }, () => ({ u: (rnd() + rnd() + rnd() - 1.5) / 1.5, v: rnd(), f: 1.5 + rnd() * 4, ph: rnd() * TAU, w: 0.5 + rnd() }));
   const specks = Array.from({ length: 150 }, () => ({ u: rnd(), v: rnd(), f: 2 + rnd() * 5, ph: rnd() * TAU }));
   const swells = Array.from({ length: 70 }, () => ({ u: rnd(), v: rnd(), len: 0.02 + rnd() * 0.06, sp: 0.004 + rnd() * 0.01 }));
@@ -527,6 +534,65 @@ void main() {
     }
   }
 
+  // A palm, added to the current path: a bowed, tapering trunk and a fan of fronds that droop
+  // more the farther out they point. bend is the wind, positive pushing right. Big palms also
+  // get leaflets hanging off each frond, added to the feathers path for stroking.
+  function palm(x, y, h, lean, unit, bend, big, T, feathers) {
+    const cx = x + lean + bend * h * 0.12, cy = y - h;
+    const kx = x + lean * 0.15, ky = y - h * 0.6; // where the trunk bows
+    const w0 = h * 0.04, w1 = h * 0.022, left = [], right = [];
+    for (let i = 0; i <= 8; i++) {
+      const t = i / 8, a = (1 - t) * (1 - t), b = 2 * (1 - t) * t, c = t * t;
+      const px = a * x + b * kx + c * cx, py = a * y + b * ky + c * cy;
+      const tx = 2 * (1 - t) * (kx - x) + 2 * t * (cx - kx), ty = 2 * (1 - t) * (ky - y) + 2 * t * (cy - ky);
+      const len = Math.hypot(tx, ty) || 1, w = lerp(w0, w1, t) / 2;
+      left.push([px - ty / len * w, py + tx / len * w]); right.push([px + ty / len * w, py - tx / len * w]);
+    }
+    // everything winds clockwise, like the land it's filled with, so overlaps add instead of cutting holes
+    ctx.moveTo(right[0][0], right[0][1]);
+    for (const p of right) ctx.lineTo(p[0], p[1]);
+    for (let i = left.length - 1; i >= 0; i--) ctx.lineTo(left[i][0], left[i][1]);
+    ctx.closePath();
+
+    const len = Math.min(h * 0.34, unit * 0.18), n = big ? 11 : 7;
+    for (let i = 0; i < n; i++) {
+      const s = i / (n - 1);
+      let a = -Math.PI / 2 + (s - 0.5) * (Math.PI + 0.7); // from left and a little down, over the top, to right
+      if (big && !reduce) a += Math.sin(T * 1.3 + i * 1.7) * (0.03 + wx.wind * 0.08);
+      const dx = Math.cos(a), dy = Math.sin(a), droop = len * (0.36 + 0.44 * Math.abs(dx));
+      const tipX = cx + dx * len + bend * len * 0.6, tipY = cy + dy * len + droop;
+      const mx = cx + dx * len * 0.5 + bend * len * 0.25, my = cy + dy * len * 0.5 - len * 0.12;
+      const nx = -(tipY - cy), ny = tipX - cx, nl = Math.hypot(nx, ny) || 1, w = len * (big ? 0.05 : 0.13);
+      ctx.moveTo(cx, cy);
+      ctx.quadraticCurveTo(mx - nx / nl * w, my - ny / nl * w, tipX, tipY);
+      ctx.quadraticCurveTo(mx + nx / nl * w * 0.35, my + ny / nl * w * 0.35, cx, cy);
+      if (!feathers) continue;
+      // leaflets both sides of the rib, shorter toward the tip, pulled down by gravity
+      for (let t = 0.16; t < 0.99; t += 0.055) {
+        const u = 1 - t, bx = u * u * cx + 2 * u * t * mx + t * t * tipX, by = u * u * cy + 2 * u * t * my + t * t * tipY;
+        let tx = 2 * u * (mx - cx) + 2 * t * (tipX - mx), ty = 2 * u * (my - cy) + 2 * t * (tipY - my);
+        const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+        const ll = len * 0.22 * (1 - 0.55 * t);
+        for (const s of [-1, 1]) {
+          let lx = tx * 0.5 - s * ty * 0.8 + bend * 0.2, ly = ty * 0.5 + s * tx * 0.8 + 0.85;
+          const l = Math.hypot(lx, ly) || 1; lx /= l; ly /= l;
+          feathers.moveTo(bx, by); feathers.lineTo(bx + lx * ll, by + ly * ll);
+        }
+      }
+    }
+    if (big) for (let i = 0; i < 3; i++) { // coconuts
+      const r = len * 0.045, ox = (i - 1) * r * 1.6, oy = r * (i === 1 ? 1.6 : 1);
+      ctx.moveTo(cx + ox + r, cy + oy); ctx.arc(cx + ox, cy + oy, r, 0, TAU);
+    }
+  }
+
+  // a pelican gliding, as a shallow m; flap lifts the wings
+  function bird(x, y, w, flap) {
+    ctx.moveTo(x - w, y + w * 0.1);
+    ctx.quadraticCurveTo(x - w * 0.5, y - w * (0.25 + flap * 0.4), x, y);
+    ctx.quadraticCurveTo(x + w * 0.5, y - w * (0.25 + flap * 0.4), x + w, y + w * 0.1);
+  }
+
   function shaderClouds(cLit, cShade, cA, drift, sunAt, moonAt, dt) {
     const { c, gl, u } = cloudGL;
     cloudGL.drift = (cloudGL.drift + 0.009 * drift * dt) % 289;
@@ -687,48 +753,118 @@ void main() {
     }
     if (fl > 0.01) { ctx.fillStyle = rgba([225, 232, 255], fl * 0.22); ctx.fillRect(0, 0, W, H); }
 
-    // hills and pines, with the lake between the far hills and the near shore
+    // the coast: far shore, the water, the key and its reflection, pelicans, the beach, the big palms
     let base = mix([4, 6, 14], [34, 58, 52], L * 0.95);
     base = mix(base, mix([40, 44, 52], [4, 5, 10], N), gray * 0.5);
     const unit = Math.min(W, H), step = Math.max(6, W / 160);
-    const hill = (i, t, yAt, dry) => {
-      let col = mix(sky[2], base, t);
-      if (fl > 0) col = mix(col, [150, 160, 190], fl * 0.25);
-      const hl = hills[i];
-      ctx.fillStyle = rgba(col);
-      ctx.beginPath(); ctx.moveTo(0, H);
-      for (let x = 0; x <= W + step; x += step) ctx.lineTo(x, yAt(x / W) * H);
-      ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
-      if (hl.trees.length) {
-        ctx.beginPath();
-        for (const tr of hl.trees) {
-          if (yAt(tr.x) > dry) continue; // no pines standing in the water
-          const x = tr.x * W, y = yAt(tr.x) * H + 2, th = tr.h * unit * 1.8, tw = th * 0.42;
-          ctx.moveTo(x, y - th); ctx.lineTo(x + tw / 2, y - th * 0.35); ctx.lineTo(x - tw / 2, y - th * 0.35); ctx.closePath();
-          ctx.moveTo(x, y - th * 0.7); ctx.lineTo(x + tw * 0.62, y); ctx.lineTo(x - tw * 0.62, y); ctx.closePath();
-        }
-        ctx.fill();
+    const shade = t => { const col = mix(sky[2], base, t); return fl > 0 ? mix(col, [150, 160, 190], fl * 0.25) : col; };
+    const bend = (wx.wind * 0.9 + wx.storm * 0.5) * (reduce ? 0.5 : 1) + (reduce ? 0 : Math.sin(T * 0.7) * 0.05);
+    // one shore: its land, the canopy lumps along the top, and its palms, all in one fill
+    const shore = (isle, t) => {
+      ctx.fillStyle = rgba(shade(t));
+      ctx.beginPath(); ctx.moveTo(-step, isle.base * H);
+      for (let x = -step; x <= W + step; x += step) ctx.lineTo(x, shoreTop(isle, x / W) * H);
+      ctx.lineTo(W + step, isle.base * H); ctx.closePath();
+      for (const c of isle.clumps) {
+        const k = taper(isle, c.u), r = c.r * H * (0.3 + 0.7 * k);
+        if (k < 0.05) continue;
+        ctx.moveTo(c.u * W + r, shoreTop(isle, c.u) * H); ctx.arc(c.u * W, shoreTop(isle, c.u) * H, r, 0, TAU);
       }
+      for (const p of isle.palms) if (taper(isle, p.u) > 0.3) palm(p.u * W, shoreTop(isle, p.u) * H + 1, p.h * H, p.lean * p.h * H, unit, bend * 0.4, false, T);
+      ctx.fill();
     };
-    hill(0, 0.42, u => hillY(hills[0], u), 1);
-    hill(1, 0.66, u => hillY(hills[1], u), WATER);
-    drawLake(sky, L, N, gray, sunAt, moonAt, dt, T);
-    hill(2, 0.86, bankY, 0.985);
+    shore(far, 0.42);
 
-    // fireflies after dusk, only when it's dry
+    // a sailboat working along the horizon, drawn before the water so it shows in the reflection;
+    // after dark, just its masthead light
+    boat.u += 0.003 * (0.5 + wx.wind) * dt * (reduce ? 0.3 : 1);
+    if (boat.u > 1.08) boat.u = -0.08;
+    {
+      const bx = boat.u * W, by = WATER * H, s = unit * 0.018;
+      ctx.fillStyle = rgba(shade(0.5));
+      ctx.beginPath();
+      ctx.moveTo(bx - s * 0.6, by - s * 0.14); ctx.lineTo(bx + s * 0.6, by - s * 0.14); ctx.lineTo(bx + s * 0.42, by + 1); ctx.lineTo(bx - s * 0.42, by + 1); ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = rgba(mix(shade(0.5), [255, 255, 255], 0.55 * L * (1 - gray * 0.5)));
+      ctx.beginPath();
+      ctx.moveTo(bx, by - s * 1.3); ctx.lineTo(bx + s * 0.5, by - s * 0.22); ctx.lineTo(bx, by - s * 0.22); ctx.closePath();
+      ctx.moveTo(bx - s * 0.07, by - s * 1.1); ctx.lineTo(bx - s * 0.07, by - s * 0.22); ctx.lineTo(bx - s * 0.46, by - s * 0.22); ctx.closePath();
+      ctx.fill();
+      if (N > 0.3) { ctx.fillStyle = rgba([255, 214, 150], N * 0.9); ctx.beginPath(); ctx.arc(bx, by - s * 1.32, 1.3, 0, TAU); ctx.fill(); }
+    }
+
+    drawLake(sky, L, N, gray, sunAt, moonAt, dt, T);
+    ctx.save(); // the key upside down in the water, faintly
+    ctx.globalAlpha = 0.22; ctx.translate(0, 2 * KEY * H); ctx.scale(1, -1);
+    shore(key, 0.66);
+    ctx.restore();
+    shore(key, 0.66);
+
+    // now and then, pelicans gliding low over the water in daylight
+    if (!flock) {
+      flockT -= dt;
+      if (flockT <= 0 && L > 0.35 && wx.storm < 0.4 && !reduce) {
+        const dir = Math.random() < 0.5 ? 1 : -1;
+        flock = { x: dir > 0 ? -0.08 : 1.08, y: rand(0.62, 0.78), dir, v: rand(0.02, 0.032), n: 3 + Math.floor(Math.random() * 3), ph: Math.random() * TAU };
+      }
+    } else {
+      flock.x += flock.dir * flock.v * dt;
+      const w = unit * 0.011;
+      ctx.strokeStyle = rgba(shade(0.8)); ctx.lineWidth = Math.max(1.2, unit * 0.0022); ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (let k = 0; k < flock.n; k++) {
+        const flap = Math.max(0, Math.sin(T * 5 + k * 0.6)) * (Math.sin(T * 0.8 + flock.ph) > 0.6 ? 1 : 0); // mostly gliding
+        bird((flock.x - flock.dir * k * 0.022) * W, (flock.y + k * 0.009) * H + Math.sin(T * 0.6 + k) * 2, w, flap);
+      }
+      ctx.stroke();
+      if (flock.x < -0.2 || flock.x > 1.2) { flock = null; flockT = rand(25, 70); }
+    }
+
+    // the beach: sand warm in daylight, a line of foam where it meets the water, sea oats on top
+    const sand = mix(shade(0.86), [222, 199, 152], 0.62 * L * (1 - gray * 0.4));
+    ctx.fillStyle = rgba(sand);
+    ctx.beginPath(); ctx.moveTo(-step, H);
+    for (let x = -step; x <= W + step; x += step) ctx.lineTo(x, beachY(x / W) * H);
+    ctx.lineTo(W + step, H); ctx.closePath(); ctx.fill();
+    const wash = reduce ? 1 : 1 + Math.sin(T * 0.9);
+    ctx.strokeStyle = rgba([255, 255, 255], 0.14 + 0.24 * L); ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let x = -step; x <= W * 0.62; x += step) ctx.lineTo(x, beachY(x / W) * H + wash * 1.5);
+    ctx.stroke();
+    ctx.strokeStyle = rgba(mix(sand, shade(0.9), 0.55)); ctx.lineWidth = Math.max(1, unit * 0.0016);
+    ctx.beginPath();
+    for (const g of beach.tufts) {
+      const x = g.u * W, y = beachY(g.u) * H + 2, h = g.h * H, sw = bend * 0.5 + (reduce ? 0 : Math.sin(T * 1.4 + g.ph) * 0.12);
+      for (let b = -1; b <= 1; b++) {
+        const tx = x + b * h * 0.35 + sw * h * 0.6, ty = y - h * (1 - Math.abs(b) * 0.2);
+        ctx.moveTo(x + b * 1.5, y); ctx.quadraticCurveTo(x + b * h * 0.1, y - h * 0.6, tx, ty);
+      }
+    }
+    ctx.stroke();
+
+    // and the big palms in front
+    const feathers = new Path2D();
+    ctx.fillStyle = ctx.strokeStyle = rgba(shade(0.93));
+    ctx.beginPath();
+    for (const p of bigPalms) palm(p.u * W, p.base * H, p.h * H, p.lean * Math.min(p.h * H, unit * 0.6), unit, bend, true, T + p.ph, feathers);
+    ctx.fill();
+    ctx.lineWidth = Math.max(1, unit * 0.0024); ctx.lineCap = 'round';
+    ctx.stroke(feathers);
+
+    // fireflies after dusk, only when it's dry, over the beach and the key rather than open water
     const ff = smooth(0.35, 0.85, N) * (1 - smooth(0.02, 0.25, wx.rain));
     if (ff > 0.01) {
       for (const f of flies) {
         if (!reduce) {
           f.a += (Math.random() - 0.5) * dt * 2.5;
           f.x += Math.cos(f.a) * f.sp * dt; f.y += Math.sin(f.a) * f.sp * dt * 0.5;
-          if (f.x < 0) f.x += 1; if (f.x > 1) f.x -= 1;
+          if (f.x < 0 || f.x > 1) { f.a = Math.PI - f.a; f.x = clamp(f.x, 0, 1); }
           if (f.y < 0.8 || f.y > 0.985) { f.a = -f.a; f.y = clamp(f.y, 0.8, 0.985); }
         }
         const a = ff * Math.pow(Math.max(0, Math.sin(T * f.f + f.ph)), 3);
         if (a < 0.02) continue;
         ctx.globalAlpha = a;
-        ctx.drawImage(flySprite, f.x * W - 12, f.y * H - 12, 24, 24);
+        ctx.drawImage(flySprite, f.x * W * 0.55 - 12, f.y * H - 12, 24, 24);
       }
       ctx.globalAlpha = 1;
     }
