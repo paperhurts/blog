@@ -114,6 +114,97 @@
   }
   const clouds = Array.from({ length: 13 }, (_, i) => makeCloud(i));
 
+  // Shader clouds: noise on a deck overhead, so they're big above you and small at the horizon,
+  // lit by marching a few steps toward the sun or moon. Three soft exponentials stand in for light
+  // bouncing around inside, which is what makes a cloud white instead of gray smoke. Drawn small
+  // and scaled up, since clouds are soft anyway. Without WebGL (or with ?puffs) the painted puffs draw instead.
+  const CLOUD_SPAN = 0.85; // how far down the screen the cloud layer reaches
+  const CLOUD_FS = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+uniform vec2 uRes, uDrift, uEvo, uSun;
+uniform float uSpan, uAspect, uHorizon, uCover, uGlowAmt, uAlpha;
+uniform vec3 uLit, uShade, uGlow;
+
+float hash(vec2 p) { vec3 q = fract(p.xyx * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
+// value noise on a lattice that repeats every 289, so the wind can wrap without a seam
+float noise(vec2 p) {
+  vec2 i = mod(floor(p), 289.0), j = mod(i + 1.0, 289.0), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(vec2(j.x, i.y)), f.x), mix(hash(vec2(i.x, j.y)), hash(j), f.x), f.y);
+}
+float fbm3(vec2 p) { float v = 0.0, a = 0.5; for (int i = 0; i < 3; i++) { v += a * noise(p); p = p * 2.0 + 17.1; a *= 0.5; } return v / 0.875; }
+float fbm5(vec2 p) { float v = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { v += a * noise(p); p = p * 2.0 + 17.1; a *= 0.5; } return v / 0.969; }
+
+// where a ray through this point on screen meets the cloud deck
+vec2 deck(vec2 uv) { float z = 1.0 / (uHorizon - uv.y + 0.06); return vec2((uv.x - 0.5) * uAspect * z, z) * 0.55 + uDrift; }
+float thr() { return mix(0.58, 0.3, uCover); }
+float body(vec2 uv) { return smoothstep(thr(), thr() + 0.14, fbm3(deck(uv))); }
+
+void main() {
+  vec2 uv = vec2(gl_FragCoord.x / uRes.x, (1.0 - gl_FragCoord.y / uRes.y) * uSpan);
+  float up = uHorizon - uv.y;
+  if (up <= 0.0) { gl_FragColor = vec4(0.0); return; }
+  vec2 p = deck(uv);
+  float core = smoothstep(thr(), thr() + 0.14, fbm5(p));
+  // billowy detail eats the thin parts only: solid cores, ragged edges
+  float d = clamp(core - (1.0 - core) * fbm3(p * 3.0 + uEvo) * 0.9, 0.0, 1.0) * smoothstep(0.0, 0.1, up);
+  if (d < 0.003) { gl_FragColor = vec4(0.0); return; }
+
+  // optical depth toward the light, measured on the cheap version of the same field
+  vec2 toLight = (uSun - uv) * vec2(uAspect, 1.0);
+  vec2 dir = normalize(toLight) / vec2(uAspect, 1.0);
+  float tau = 0.0;
+  vec2 s = uv;
+  for (int i = 0; i < 5; i++) {
+    s += dir * (0.012 + 0.01 * float(i));
+    if (s.y < uHorizon) tau += body(s) * 1.6;
+  }
+  float bounce = (exp(-tau * 1.4) + 0.55 * exp(-tau * 0.5) + 0.28 * exp(-tau * 0.16)) / 1.83;
+
+  // read the shape as a height field, so the sides facing the light catch it: that's the puff
+  float e = 0.006;
+  vec2 g = vec2(body(uv + vec2(e, 0.0)) - body(uv - vec2(e, 0.0)), body(uv + vec2(0.0, e)) - body(uv - vec2(0.0, e)));
+  vec3 nrm = normalize(vec3(-g * 1.4, 1.0));
+  float facing = dot(nrm, normalize(vec3(toLight, 0.5))) * 0.5 + 0.5;
+  vec3 col = mix(uShade, uLit, clamp(bounce * mix(0.7, 1.45, facing), 0.0, 1.0));
+
+  // the silver lining: thin edges close to the light glow
+  col += uGlow * pow(max(0.0, 1.0 - length(toLight) * 1.8), 3.0) * uGlowAmt * (1.0 - d) * 1.6;
+
+  float a = d * uAlpha;
+  gl_FragColor = vec4(col * a, a);
+}`;
+  const cloudGL = (() => {
+    if (new URLSearchParams(location.search).has('puffs')) return null;
+    const c = document.createElement('canvas');
+    const gl = c.getContext('webgl', { premultipliedAlpha: true, antialias: false, depth: false, stencil: false });
+    if (!gl) return null;
+    const shader = (type, src) => {
+      const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+      if (gl.getShaderParameter(s, gl.COMPILE_STATUS)) return s;
+      console.warn('Cloud shader failed, using painted clouds:', gl.getShaderInfoLog(s));
+      return null;
+    };
+    const vs = shader(gl.VERTEX_SHADER, 'attribute vec2 a; void main() { gl_Position = vec4(a, 0.0, 1.0); }');
+    const fs = shader(gl.FRAGMENT_SHADER, CLOUD_FS);
+    if (!vs || !fs) return null;
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
+    gl.useProgram(prog);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(prog, 'a');
+    gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    const u = {};
+    for (const k of ['uRes', 'uDrift', 'uEvo', 'uSun', 'uSpan', 'uAspect', 'uHorizon', 'uCover', 'uGlowAmt', 'uAlpha', 'uLit', 'uShade', 'uGlow']) u[k] = gl.getUniformLocation(prog, k);
+    return { c, gl, u, drift: Math.random() * 289, evo: 0 };
+  })();
+
   const flies = Array.from({ length: 28 }, () => ({ x: rnd(), y: 0.8 + rnd() * 0.18, a: rnd() * TAU, sp: 0.01 + rnd() * 0.02, ph: rnd() * TAU, f: 0.6 + rnd() * 1.2 }));
   const flySprite = document.createElement('canvas');
   flySprite.width = flySprite.height = 48;
@@ -436,6 +527,31 @@
     }
   }
 
+  function shaderClouds(cLit, cShade, cA, drift, sunAt, moonAt, dt) {
+    const { c, gl, u } = cloudGL;
+    cloudGL.drift = (cloudGL.drift + 0.009 * drift * dt) % 289;
+    cloudGL.evo = (cloudGL.evo + 0.006 * (reduce ? 0.3 : 1) * dt) % 289;
+    const src = sunAt || moonAt; // with neither, the light comes from high overhead
+    const glow = sunAt ? mix(sunAt.c, [255, 255, 255], 0.2) : [215, 222, 255];
+    const glowAmt = sunAt ? sunAt.a * (0.5 + 0.5 * (1 - sunAt.hi)) : moonAt ? moonAt.a * 0.5 : 0;
+    gl.viewport(0, 0, c.width, c.height);
+    gl.uniform2f(u.uRes, c.width, c.height);
+    gl.uniform2f(u.uDrift, -cloudGL.drift, 0); // the field slides left under the samples, so the clouds sail right
+    gl.uniform2f(u.uEvo, cloudGL.evo, cloudGL.evo * 0.7);
+    gl.uniform2f(u.uSun, src ? src.x / W : 0.5, src ? src.y / H : -0.6);
+    gl.uniform1f(u.uSpan, CLOUD_SPAN);
+    gl.uniform1f(u.uAspect, W / H);
+    gl.uniform1f(u.uHorizon, 0.83);
+    gl.uniform1f(u.uCover, wx.cover);
+    gl.uniform1f(u.uGlowAmt, glowAmt);
+    gl.uniform1f(u.uAlpha, cA);
+    gl.uniform3f(u.uLit, cLit[0] / 255, cLit[1] / 255, cLit[2] / 255);
+    gl.uniform3f(u.uShade, cShade[0] / 255, cShade[1] / 255, cShade[2] / 255);
+    gl.uniform3f(u.uGlow, glow[0] / 255, glow[1] / 255, glow[2] / 255);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    ctx.drawImage(c, 0, 0, W, H * CLOUD_SPAN);
+  }
+
   function render(h, dt, T) {
     const elev = elevOf(h);
     const L = smooth(-0.12, 0.3, elev);
@@ -497,7 +613,7 @@
         ctx.globalAlpha = mA;
         ctx.drawImage(moonSprite, mx - moonR - 2, my - moonR - 2, moonR * 2 + 4, moonR * 2 + 4);
         ctx.globalAlpha = 1;
-        moonAt = { x: mx, a: mA * N };
+        moonAt = { x: mx, y: my, a: mA * N };
         if (L < 0.05) light = { angle: lerp(90, 270, clamp(mx / W, 0, 1)), c: rgba([205, 215, 255], 0.16 * mA * N) };
       }
     }
@@ -515,7 +631,7 @@
       g.addColorStop(0, rgba(core, 0.5 * vis)); g.addColorStop(0.35, rgba(core, 0.16 * vis)); g.addColorStop(1, rgba(core, 0));
       ctx.fillStyle = g; ctx.beginPath(); ctx.arc(sx, sy, gR, 0, TAU); ctx.fill();
       ctx.fillStyle = rgba(core, vis); ctx.beginPath(); ctx.arc(sx, sy, R, 0, TAU); ctx.fill();
-      sunAt = { x: sx, c: core, a: vis, hi };
+      sunAt = { x: sx, y: sy, c: core, a: vis, hi };
       if (L > 0.02) light = { angle: lerp(90, 270, clamp(sx / W, 0, 1)), c: rgba(core, 0.3 * L * vis) };
     }
 
@@ -537,22 +653,25 @@
     let cShade = mix(cLit, mix(sky[1], [20, 24, 40], 0.55), 0.38);
     if (fl > 0) { cLit = mix(cLit, [235, 240, 255], fl * 0.6); cShade = mix(cShade, [200, 210, 240], fl * 0.5); }
     const cA = lerp(0.95, 0.8, N);
-    const scaleBase = clamp(W / 1100, 0.55, 1.25);
-    const coverVis = 0.22 + 0.78 * wx.cover;
     const drift = (1 + wx.wind * 3) * (reduce ? 0.4 : 1);
-    for (const c of clouds) {
-      c.x += c.v * drift * dt / W;
-      if (c.x > 1.35) { c.x = -0.35 - Math.random() * 0.15; c.y = 0.05 + Math.random() * 0.5; }
-      const vis = smooth(c.th - 0.08, c.th + 0.12, coverVis);
-      if (vis < 0.01) continue;
-      const s = c.s * scaleBase * (1 + wx.storm * 0.25);
-      const cx = c.x * W, cy = c.y * H;
-      for (const p of c.puffs) {
-        const x = cx + p.dx * s, y = cy + p.dy * s, r = p.r * s;
-        const col = mix(cLit, cShade, clamp((p.dy + 20) / 50, 0, 1));
-        const g = ctx.createRadialGradient(x, y, r * 0.15, x, y, r);
-        g.addColorStop(0, rgba(col, vis * cA)); g.addColorStop(0.55, rgba(col, vis * cA * 0.8)); g.addColorStop(1, rgba(col, 0));
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+    if (cloudGL && !cloudGL.gl.isContextLost()) shaderClouds(cLit, cShade, cA, drift, L > 0.05 ? sunAt : null, moonAt, dt);
+    else {
+      const scaleBase = clamp(W / 1100, 0.55, 1.25);
+      const coverVis = 0.22 + 0.78 * wx.cover;
+      for (const c of clouds) {
+        c.x += c.v * drift * dt / W;
+        if (c.x > 1.35) { c.x = -0.35 - Math.random() * 0.15; c.y = 0.05 + Math.random() * 0.5; }
+        const vis = smooth(c.th - 0.08, c.th + 0.12, coverVis);
+        if (vis < 0.01) continue;
+        const s = c.s * scaleBase * (1 + wx.storm * 0.25);
+        const cx = c.x * W, cy = c.y * H;
+        for (const p of c.puffs) {
+          const x = cx + p.dx * s, y = cy + p.dy * s, r = p.r * s;
+          const col = mix(cLit, cShade, clamp((p.dy + 20) / 50, 0, 1));
+          const g = ctx.createRadialGradient(x, y, r * 0.15, x, y, r);
+          g.addColorStop(0, rgba(col, vis * cA)); g.addColorStop(0.55, rgba(col, vis * cA * 0.8)); g.addColorStop(1, rgba(col, 0));
+          ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+        }
       }
     }
 
@@ -650,6 +769,8 @@
     W = w; H = hh;
     canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.imageSmoothingQuality = 'high'; // the cloud layer is drawn small and scaled up
+    if (cloudGL) { cloudGL.c.width = Math.round(clamp(W * 0.4, 160, 560)); cloudGL.c.height = Math.round(cloudGL.c.width * H * CLOUD_SPAN / W); }
     if (!refl) { refl = document.createElement('canvas'); reflCtx = refl.getContext('2d'); }
     refl.width = canvas.width; refl.height = Math.ceil(H * (1 - WATER) * DPR);
     buildMoon(); buildDrops();
