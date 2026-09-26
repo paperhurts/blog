@@ -1,6 +1,7 @@
 ---
 title: Things worth keeping
 date: 2026-07-22 18:12
+draft: true
 ---
 
 A running list, updated whenever.

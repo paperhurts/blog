@@ -1,6 +1,7 @@
 ---
 title: Why this blog has weather
 date: 2026-05-14 21:54
+draft: true
 ---
 
 Most websites look the same at noon and at midnight. That always felt a little dishonest for something that's supposed to be a journal. People have weather. So does this. Sometimes it rains while you read, and that isn't a bug.

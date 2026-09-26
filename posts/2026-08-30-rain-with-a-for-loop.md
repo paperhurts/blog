@@ -1,6 +1,7 @@
 ---
 title: How to draw rain with a for-loop
 date: 2026-08-30 13:24
+draft: true
 ---
 
 Every drop falling behind this page is one line: a start point, a length, a speed, and a little wind. A few hundred of them, recycled forever. Weather, it turns out, is mostly a lot of small, simple things agreeing to fall at the same time.

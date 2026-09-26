@@ -262,9 +262,17 @@
   const setVar = (k, v) => { if (cache[k] !== v) { root.style.setProperty(k, v); cache[k] = v; } };
   let themeTick = 0;
 
+  // Text is light-on-dark or dark-on-light, never halfway: blending both toward the middle
+  // leaves gray text on a gray pane. The flip has some slack so it can't flicker at the
+  // threshold, and it fades over time rather than following the scroll.
+  let day = -1, d = 0;
+
   function applyTheme(h, sky, L, light, dt) {
     const Le = L * (1 - 0.4 * smooth(0.35, 1, wx.cover) - 0.15 * wx.storm);
-    const d = smooth(0.34, 0.5, Le);
+    if (day < 0) d = day = Le > 0.42 ? 1 : 0;
+    else if (Le > 0.46) day = 1;
+    else if (Le < 0.38) day = 0;
+    d += (day - d) * (1 - Math.exp(-dt / (reduce ? 0.04 : 0.2)));
     const ink = mix([234, 236, 248], [20, 27, 44], d);
     const pane = mix(mix([11, 15, 36], [255, 255, 255], d), sky[1], 0.1);
     setVar('--ink', rgba(ink));
