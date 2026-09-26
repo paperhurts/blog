@@ -342,9 +342,21 @@
   const b64text = s => b64(new TextEncoder().encode(s));
   const b64blob = async blob => b64(new Uint8Array(await blob.arrayBuffer()));
 
+  // Commits name the account's no-reply address, never its real email, since the repo is public.
+  // Left out, GitHub would fill in whatever email the account has, and that may be a real one.
+  async function identity() {
+    if (!conn.author) {
+      const me = await gh('/user').catch(() => gh(`/repos/${conn.repo}`).then(r => r.owner));
+      conn.author = { name: me.login, email: `${me.id}+${me.login}@users.noreply.github.com` };
+      save(KEY.conn, conn);
+    }
+    return { ...conn.author, date: new Date().toISOString() };
+  }
+
   // One commit for the post and its photos, so the site builds once.
   async function commit(files, message) {
     const R = `/repos/${conn.repo}`;
+    const who = await identity();
     const tree = [];
     for (const f of files) {
       const blob = await gh(`${R}/git/blobs`, { method: 'POST', body: { content: f.base64, encoding: 'base64' } });
@@ -354,7 +366,7 @@
       const ref = await gh(`${R}/git/ref/heads/${conn.branch}`);
       const head = await gh(`${R}/git/commits/${ref.object.sha}`);
       const t = await gh(`${R}/git/trees`, { method: 'POST', body: { base_tree: head.tree.sha, tree } });
-      const c = await gh(`${R}/git/commits`, { method: 'POST', body: { message, tree: t.sha, parents: [ref.object.sha] } });
+      const c = await gh(`${R}/git/commits`, { method: 'POST', body: { message, tree: t.sha, parents: [ref.object.sha], author: who, committer: who } });
       try { await gh(`${R}/git/refs/heads/${conn.branch}`, { method: 'PATCH', body: { sha: c.sha } }); return c; }
       catch (e) { if (e.status !== 422 || attempt >= 2) throw e; } // someone pushed in between: rebase and retry
     }
@@ -443,6 +455,7 @@
     try {
       const info = await gh(`/repos/${repo}`);
       conn.branch = info.default_branch || 'main';
+      await identity();
       save(KEY.conn, conn);
       el.token.value = '';
       say(`Connected. Posts will go to ${repo} on ${conn.branch}.`);

@@ -40,6 +40,10 @@ The time in `date` decides where the post sits in the day. Write it the way your
 
 Posts written between midnight and 4 am stay at the end of the night before, instead of jumping to the top of the next morning.
 
+### From your phone
+
+https://paperhurts.com/write/ is a composer you save to the home screen. It posts straight to this repo with a fine-grained GitHub token (this repo only, Contents read and write) that stays on the phone. Drafts stay on the phone as well. Each post, photos included, is a single commit authored with the account's no-reply address. Photos land in `public/images/`.
+
 ### Linking between posts
 
 `[[How to draw rain with a for-loop]]` or `[[rain-with-a-for-loop]]` links by title or slug. `[[rain-with-a-for-loop|the rain post]]` sets the link text. Every post shows the posts that link to it under "Linked from". A link to a post that doesn't exist yet builds fine, shows as dotted text, and gets a warning in the terminal.
