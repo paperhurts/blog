@@ -126,6 +126,14 @@
     g.fillStyle = r; g.fillRect(0, 0, 48, 48);
   }
 
+  // the lake: in front of the far hills, behind the near shore, which slopes into it on the right
+  const WATER = 0.872;
+  const bankY = u => hillY(hills[2], u) + smooth(0.3, 0.62, u) * 0.16;
+  const glints = Array.from({ length: 240 }, () => ({ u: (rnd() + rnd() + rnd() - 1.5) / 1.5, v: rnd(), f: 1.5 + rnd() * 4, ph: rnd() * TAU, w: 0.5 + rnd() }));
+  const specks = Array.from({ length: 150 }, () => ({ u: rnd(), v: rnd(), f: 2 + rnd() * 5, ph: rnd() * TAU }));
+  const swells = Array.from({ length: 70 }, () => ({ u: rnd(), v: rnd(), len: 0.02 + rnd() * 0.06, sp: 0.004 + rnd() * 0.01 }));
+  let rings = [], refl = null, reflCtx = null;
+
   let moonSprite = null, moonR = 20;
   function buildMoon() {
     moonR = clamp(Math.min(W, H) * 0.03, 16, 32);
@@ -263,16 +271,20 @@
   let themeTick = 0;
 
   // Text is light-on-dark or dark-on-light, never halfway: blending both toward the middle
-  // leaves gray text on a gray pane. The flip has some slack so it can't flicker at the
-  // threshold, and it fades over time rather than following the scroll.
-  let day = -1, d = 0;
+  // leaves gray text on a gray pane (or a gray sky). Each flip has some slack so it can't
+  // flicker at the threshold, and it fades over time rather than following the scroll.
+  const inks = { pane: { on: -1, d: 0 }, sky: { on: -1, d: 0 }, top: { on: -1, d: 0 } };
+  function polarity(p, v, lo, hi, dt) {
+    if (p.on < 0) p.d = p.on = v > (lo + hi) / 2 ? 1 : 0;
+    else if (v > hi) p.on = 1;
+    else if (v < lo) p.on = 0;
+    p.d += (p.on - p.d) * (1 - Math.exp(-dt / (reduce ? 0.04 : 0.2)));
+    return p.d;
+  }
 
   function applyTheme(h, sky, L, light, dt) {
     const Le = L * (1 - 0.4 * smooth(0.35, 1, wx.cover) - 0.15 * wx.storm);
-    if (day < 0) d = day = Le > 0.42 ? 1 : 0;
-    else if (Le > 0.46) day = 1;
-    else if (Le < 0.38) day = 0;
-    d += (day - d) * (1 - Math.exp(-dt / (reduce ? 0.04 : 0.2)));
+    const d = polarity(inks.pane, Le, 0.38, 0.46, dt);
     const ink = mix([234, 236, 248], [20, 27, 44], d);
     const pane = mix(mix([11, 15, 36], [255, 255, 255], d), sky[1], 0.1);
     setVar('--ink', rgba(ink));
@@ -282,10 +294,10 @@
     setVar('--pane-edge', rgba(mix([150, 165, 230], [255, 255, 255], d), lerp(0.16, 0.6, d)));
     const hue = ((sample1(HUE, h) % 360) + 360) % 360;
     setVar('--accent', `hsl(${hue | 0} ${Math.round(lerp(75, 64, d))}% ${Math.round(lerp(78, 34, d))}%)`);
-    const sd = smooth(0.47, 0.53, lum(sky[1]));
+    const sd = polarity(inks.sky, lum(sky[1]), 0.46, 0.54, dt);
     setVar('--sky-ink', rgba(mix([246, 244, 255], [14, 22, 42], sd)));
     setVar('--sky-halo', rgba(mix([4, 6, 18], [255, 255, 255], sd), lerp(0.62, 0.5, sd)));
-    const st = smooth(0.47, 0.53, lum(sky[0])); // the top bar sits against the zenith, not the middle of the sky
+    const st = polarity(inks.top, lum(sky[0]), 0.46, 0.54, dt); // the top bar sits against the zenith, not the middle of the sky
     setVar('--sky-ink-top', rgba(mix([246, 244, 255], [14, 22, 42], st)));
     setVar('--sky-halo-top', rgba(mix([4, 6, 18], [255, 255, 255], st), lerp(0.62, 0.5, st)));
     setVar('--bg', rgba(sky[2]));
@@ -333,6 +345,97 @@
     ctx.stroke();
   }
 
+  function drawLake(sky, L, N, gray, sunAt, moonAt, dt, T) {
+    const top = Math.round(WATER * H), hw = H - top;
+    const calm = reduce ? 0.2 : 1;
+
+    // mirror the band above the waterline, a strip at a time, each nudged sideways by the swell
+    if (refl && refl.height) {
+      reflCtx.clearRect(0, 0, refl.width, refl.height);
+      reflCtx.drawImage(canvas, 0, (top - hw) * DPR, refl.width, refl.height, 0, 0, refl.width, refl.height);
+      const sh = 3, n = Math.ceil(hw / sh), amp = 1.5 + wx.wind * 4 + wx.storm * 3;
+      for (let k = 0; k < n; k++) {
+        // each strip runs 1px long so neighbors overlap instead of leaving antialiased seams
+        const srcY = Math.max(0, (hw - (k + 1) * sh - 1) * DPR), srcH = Math.min((sh + 1) * DPR, refl.height - srcY);
+        if (srcH <= 0) continue;
+        const dx = Math.sin(k * 0.8 + T * 1.7 * calm) * amp * (0.4 + 1.6 * k / n);
+        ctx.drawImage(refl, 0, srcY, refl.width, srcH, dx - amp * 2, top + k * sh, W + amp * 4, srcH / DPR);
+      }
+    }
+
+    // the nearer the water, the more it shows the sky overhead; then deeper and darker toward you
+    const sg = ctx.createLinearGradient(0, top, 0, H);
+    sg.addColorStop(0, rgba(sky[2], 0)); sg.addColorStop(1, rgba(sky[1], 0.3 * (1 - gray * 0.5)));
+    ctx.fillStyle = sg; ctx.fillRect(0, top, W, hw);
+    const deep = mix(mix([4, 8, 20], [18, 58, 72], L), [30, 34, 42], gray * 0.6);
+    const wg = ctx.createLinearGradient(0, top, 0, H);
+    wg.addColorStop(0, rgba(deep, 0.18)); wg.addColorStop(1, rgba(deep, 0.6));
+    ctx.fillStyle = wg; ctx.fillRect(0, top, W, hw);
+    ctx.fillStyle = rgba(mix(sky[2], [255, 255, 255], 0.3), 0.18 + 0.2 * L);
+    ctx.fillRect(0, top, W, 1);
+
+    // long swells sliding with the wind, bunched up toward the far shore
+    ctx.fillStyle = rgba(mix(sky[1], [255, 255, 255], 0.35), (0.05 + 0.12 * L) * (1 - wx.rain * 0.5));
+    for (const s of swells) {
+      s.u += s.sp * (0.4 + wx.wind * 2) * dt * calm;
+      if (s.u > 1.1) s.u -= 1.2;
+      const v = s.v * s.v, len = s.len * W * (0.25 + v * 1.4);
+      ctx.fillRect(s.u * W - len / 2, top + v * hw, len, v > 0.5 ? 1.5 : 1);
+    }
+
+    // the glitter path: sharp little flashes in a bell curve under the sun or moon
+    const path = (at, col, strength) => {
+      if (!at || strength < 0.02 || at.x < -W * 0.2 || at.x > W * 1.2) return;
+      const gw = W * 0.045;
+      const cg = ctx.createLinearGradient(at.x - gw, 0, at.x + gw, 0);
+      cg.addColorStop(0, rgba(col, 0)); cg.addColorStop(0.5, rgba(col, strength * 0.16)); cg.addColorStop(1, rgba(col, 0));
+      ctx.fillStyle = cg; ctx.fillRect(at.x - gw, top, gw * 2, hw);
+      for (const g of glints) {
+        const tw = reduce ? 0.45 : Math.pow(Math.max(0, Math.sin(T * g.f + g.ph)), 6);
+        const a = strength * tw * Math.exp(-g.u * g.u * 2.5);
+        if (a < 0.02) continue;
+        const v = g.v, w = (1.5 + v * 7) * g.w;
+        ctx.fillStyle = rgba(col, a);
+        ctx.fillRect(at.x + g.u * W * (0.01 + 0.07 * v) - w / 2, top + Math.pow(v, 1.4) * hw, w, 1 + v);
+      }
+    };
+    if (sunAt) path(sunAt, mix(sunAt.c, [255, 255, 255], 0.35), sunAt.a * L * (1 - 0.45 * sunAt.hi));
+    if (moonAt) path(moonAt, [225, 232, 255], moonAt.a * 0.7);
+
+    // and the sparkle everywhere else when the sun is out; the brightest flashes get a little cross
+    const sp = L * (1 - smooth(0.3, 0.9, wx.cover)) * 0.85;
+    if (sp > 0.02) {
+      for (const s of specks) {
+        const tw = reduce ? 0.3 : Math.pow(Math.max(0, Math.sin(T * s.f + s.ph)), 16);
+        if (tw < 0.03) { if (!reduce && Math.random() < dt * 1.5) { s.u = Math.random(); s.v = Math.random(); } continue; }
+        const v = s.v, x = s.u * W, y = top + Math.pow(v, 1.2) * hw, r = 1 + v * 3;
+        ctx.fillStyle = rgba([255, 252, 240], sp * tw);
+        ctx.fillRect(x - r, y, r * 2, 1);
+        if (tw > 0.6) { ctx.fillRect(x - r * 1.8, y, r * 3.6, 1); ctx.fillRect(x - 0.5, y - r * 0.8, 1, r * 1.6 + 1); }
+      }
+    }
+
+    // rain lands in rings
+    if (!reduce && wx.rain > 0.02 && rings.length < 140) {
+      for (let spawn = wx.rain * 45 * dt; spawn > 0; spawn--) {
+        if (Math.random() < spawn) rings.push({ x: Math.random() * W, v: Math.random(), life: 0, max: 0.55 + Math.random() * 0.5 });
+      }
+    }
+    if (rings.length) {
+      ctx.strokeStyle = rgba(mix(sky[1], [255, 255, 255], 0.45));
+      ctx.lineWidth = 1;
+      for (let i = rings.length - 1; i >= 0; i--) {
+        const r = rings[i];
+        r.life += dt;
+        if (r.life > r.max) { rings.splice(i, 1); continue; }
+        const p = r.life / r.max, rx = (2 + r.v * 16) * p;
+        ctx.globalAlpha = (1 - p) * 0.45 * (0.5 + 0.5 * (1 - N * 0.5));
+        ctx.beginPath(); ctx.ellipse(r.x, top + Math.pow(r.v, 1.3) * hw, rx, rx * 0.3, 0, 0, TAU); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+
   function render(h, dt, T) {
     const elev = elevOf(h);
     const L = smooth(-0.12, 0.3, elev);
@@ -377,6 +480,7 @@
     }
 
     let light = { angle: 180, c: 'rgba(0,0,0,0)' };
+    let sunAt = null, moonAt = null; // for the glitter on the lake
     const hide = smooth(0.3, 0.95, wx.cover);
 
     // moon
@@ -393,6 +497,7 @@
         ctx.globalAlpha = mA;
         ctx.drawImage(moonSprite, mx - moonR - 2, my - moonR - 2, moonR * 2 + 4, moonR * 2 + 4);
         ctx.globalAlpha = 1;
+        moonAt = { x: mx, a: mA * N };
         if (L < 0.05) light = { angle: lerp(90, 270, clamp(mx / W, 0, 1)), c: rgba([205, 215, 255], 0.16 * mA * N) };
       }
     }
@@ -410,6 +515,7 @@
       g.addColorStop(0, rgba(core, 0.5 * vis)); g.addColorStop(0.35, rgba(core, 0.16 * vis)); g.addColorStop(1, rgba(core, 0));
       ctx.fillStyle = g; ctx.beginPath(); ctx.arc(sx, sy, gR, 0, TAU); ctx.fill();
       ctx.fillStyle = rgba(core, vis); ctx.beginPath(); ctx.arc(sx, sy, R, 0, TAU); ctx.fill();
+      sunAt = { x: sx, c: core, a: vis, hi };
       if (L > 0.02) light = { angle: lerp(90, 270, clamp(sx / W, 0, 1)), c: rgba(core, 0.3 * L * vis) };
     }
 
@@ -462,28 +568,33 @@
     }
     if (fl > 0.01) { ctx.fillStyle = rgba([225, 232, 255], fl * 0.22); ctx.fillRect(0, 0, W, H); }
 
-    // hills and pines
+    // hills and pines, with the lake between the far hills and the near shore
     let base = mix([4, 6, 14], [34, 58, 52], L * 0.95);
     base = mix(base, mix([40, 44, 52], [4, 5, 10], N), gray * 0.5);
     const unit = Math.min(W, H), step = Math.max(6, W / 160);
-    [0.42, 0.66, 0.86].forEach((t, i) => {
+    const hill = (i, t, yAt, dry) => {
       let col = mix(sky[2], base, t);
       if (fl > 0) col = mix(col, [150, 160, 190], fl * 0.25);
       const hl = hills[i];
       ctx.fillStyle = rgba(col);
       ctx.beginPath(); ctx.moveTo(0, H);
-      for (let x = 0; x <= W + step; x += step) ctx.lineTo(x, hillY(hl, x / W) * H);
+      for (let x = 0; x <= W + step; x += step) ctx.lineTo(x, yAt(x / W) * H);
       ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
       if (hl.trees.length) {
         ctx.beginPath();
         for (const tr of hl.trees) {
-          const x = tr.x * W, y = hillY(hl, tr.x) * H + 2, th = tr.h * unit * 1.8, tw = th * 0.42;
+          if (yAt(tr.x) > dry) continue; // no pines standing in the water
+          const x = tr.x * W, y = yAt(tr.x) * H + 2, th = tr.h * unit * 1.8, tw = th * 0.42;
           ctx.moveTo(x, y - th); ctx.lineTo(x + tw / 2, y - th * 0.35); ctx.lineTo(x - tw / 2, y - th * 0.35); ctx.closePath();
           ctx.moveTo(x, y - th * 0.7); ctx.lineTo(x + tw * 0.62, y); ctx.lineTo(x - tw * 0.62, y); ctx.closePath();
         }
         ctx.fill();
       }
-    });
+    };
+    hill(0, 0.42, u => hillY(hills[0], u), 1);
+    hill(1, 0.66, u => hillY(hills[1], u), WATER);
+    drawLake(sky, L, N, gray, sunAt, moonAt, dt, T);
+    hill(2, 0.86, bankY, 0.985);
 
     // fireflies after dusk, only when it's dry
     const ff = smooth(0.35, 0.85, N) * (1 - smooth(0.02, 0.25, wx.rain));
@@ -539,6 +650,8 @@
     W = w; H = hh;
     canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    if (!refl) { refl = document.createElement('canvas'); reflCtx = refl.getContext('2d'); }
+    refl.width = canvas.width; refl.height = Math.ceil(H * (1 - WATER) * DPR);
     buildMoon(); buildDrops();
   }
 
