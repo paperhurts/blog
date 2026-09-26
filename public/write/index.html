@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#070b1f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Write">
+<title>Write</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-180.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,500;1,300;1,400&display=swap">
+<link rel="stylesheet" href="../assets/style.css">
+<style>
+.compose{margin-top:clamp(.5rem,4vh,2.5rem)}
+.compose .when{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 .35em}
+.linkbtn{font:inherit;font-style:italic;color:var(--accent);background:none;border:0;padding:0;cursor:pointer;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.2em}
+.timeedit[hidden]{display:none}
+.timeedit{display:flex;flex-wrap:wrap;align-items:center;gap:.5em 1em;margin:.2em 0 1em;color:var(--muted);font-style:italic}
+.timeedit input{font:inherit;font-style:normal;color:var(--ink);background:var(--rule);border:0;border-radius:4px;padding:.3em .5em;color-scheme:light dark}
+.title-input{display:block;width:100%;font-family:var(--display);font-weight:400;font-size:clamp(2rem,1.5rem + 2.5vw,3rem);line-height:1.08;letter-spacing:-.015em;color:var(--ink);background:none;border:0;border-bottom:1px solid transparent;border-radius:0;padding:0 0 .1em;margin:.15em 0 .45em;outline:none;resize:none;overflow:hidden}
+#body{display:block;width:100%;min-height:42vh;font:inherit;line-height:1.66;color:var(--ink);background:none;border:0;border-radius:0;padding:0;margin:0;resize:none;outline:none;overflow:hidden}
+.title-input:focus{border-bottom-color:var(--rule)}
+.title-input::placeholder,#body::placeholder{color:var(--muted);opacity:.75}
+.shots{display:flex;flex-wrap:wrap;gap:.6rem;margin-top:1rem}
+.shots:empty{display:none}
+.shot{position:relative;width:4.5rem;height:4.5rem;border-radius:4px;overflow:hidden;background:var(--rule)}
+.shot img{width:100%;height:100%;object-fit:cover;display:block}
+.shot.unused img{opacity:.35}
+.shot button{position:absolute;top:.2rem;right:.2rem;width:1.6rem;height:1.6rem;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font:600 1rem/1 system-ui,sans-serif;cursor:pointer}
+.actions{display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-top:1.4rem;padding-top:1.1rem;border-top:1px solid var(--rule)}
+.btn{display:inline-flex;align-items:center;gap:.45em;font:inherit;line-height:1;color:var(--ink);background:none;border:1px solid var(--pane-edge);border-radius:999px;padding:.65em 1.1em;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.btn svg{width:1.15em;height:1.15em}
+.btn.primary{color:var(--accent);border:1.5px solid var(--accent);font-weight:500;padding:.65em 1.5em}
+.btn:disabled{opacity:.45;cursor:default}
+.status{margin:.9em 0 0;min-height:1.6em;font-style:italic;color:var(--muted)}
+.status.problem{font-style:normal;color:var(--ink)}
+.status a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:.2em}
+.settings{margin-top:1rem;margin-bottom:6rem;padding-block:1.1rem}
+.settings summary{cursor:pointer;font-style:italic;color:var(--muted)}
+.settings[open] summary{margin-bottom:1rem}
+.settings p{margin:0 0 1em}
+.settings label{display:block;margin:0 0 .9em;color:var(--muted);font-style:italic}
+.settings label input{display:block;width:100%;margin-top:.3em;font:inherit;font-style:normal;color:var(--ink);background:var(--rule);border:0;border-radius:4px;padding:.55em .7em}
+.settings .row{display:flex;flex-wrap:wrap;align-items:center;gap:.8rem 1.4rem}
+.settings ol{padding-left:1.3em;margin:.6em 0 0}
+.settings li+li{margin-top:.35em}
+.settings a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:.2em}
+.settings details summary{color:var(--accent)}
+.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+</style>
+</head>
+<body>
+<canvas id="sky" aria-hidden="true"></canvas>
+<div class="hud">
+  <span class="chip" id="hudTime" aria-hidden="true"></span>
+  <button class="chip" id="hudWx" type="button" title="Change the weather">Clear</button>
+</div>
+
+<main class="page">
+  <nav class="topbar col" aria-label="Site"><a href="../">paperhurts</a></nav>
+
+  <section class="pane col compose" id="compose" data-hour="12" aria-label="New post">
+    <p class="when">
+      <span>Sits at</span>
+      <span class="hour" id="stampHour"></span><span id="stampDate"></span>
+      <button type="button" class="linkbtn" id="changeTime" aria-expanded="false" aria-controls="timeEdit">Change</button>
+    </p>
+    <div class="timeedit" id="timeEdit" hidden>
+      <label>Written at <input type="datetime-local" id="stampInput"></label>
+      <button type="button" class="linkbtn" id="stampNow">Use now</button>
+    </div>
+
+    <label class="visually-hidden" for="title">Title</label>
+    <textarea id="title" class="title-input" placeholder="Title" rows="1" autocomplete="off" enterkeyhint="next"></textarea>
+    <label class="visually-hidden" for="body">Post</label>
+    <textarea id="body" placeholder="Write." rows="8"></textarea>
+
+    <div class="shots" id="shots" aria-label="Attached photos"></div>
+
+    <div class="actions">
+      <button type="button" class="btn" id="addPhoto">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M4 7.5h3l1.6-2.2h6.8L17 7.5h3V19H4z"/><circle cx="12" cy="13" r="3.6"/></svg>
+        Add photo
+      </button>
+      <input type="file" id="photo" accept="image/*" multiple class="visually-hidden" tabindex="-1" aria-hidden="true">
+      <button type="button" class="btn primary" id="post" disabled>Post</button>
+    </div>
+    <p class="status" id="status" role="status" aria-live="polite"></p>
+  </section>
+
+  <details class="pane col settings" id="settings">
+    <summary id="settingsSummary">Connection</summary>
+    <p>Posts go straight to your blog's repository on GitHub. The token stays on this device.</p>
+    <label>Repository
+      <input id="repo" placeholder="owner/repo" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off">
+    </label>
+    <label>Token
+      <input id="token" type="password" placeholder="github_pat_..." autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off">
+    </label>
+    <div class="row">
+      <button type="button" class="btn primary" id="connect">Connect</button>
+      <button type="button" class="linkbtn" id="forget">Forget token</button>
+    </div>
+    <p class="status" id="connStatus" role="status" aria-live="polite"></p>
+    <details>
+      <summary>How to make a token</summary>
+      <ol>
+        <li>Open <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">new fine-grained token</a> on GitHub.</li>
+        <li>Under Repository access, choose Only select repositories and pick the blog's repo.</li>
+        <li>Under Repository permissions, set Contents to Read and write. Nothing else is needed.</li>
+        <li>Pick an expiration, generate it, and paste it above.</li>
+      </ol>
+    </details>
+  </details>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const el = {
+    compose: $('compose'), stampHour: $('stampHour'), stampDate: $('stampDate'), changeTime: $('changeTime'),
+    timeEdit: $('timeEdit'), stampInput: $('stampInput'), stampNow: $('stampNow'), title: $('title'), body: $('body'),
+    shots: $('shots'), addPhoto: $('addPhoto'), photo: $('photo'), post: $('post'), status: $('status'),
+    settings: $('settings'), summary: $('settingsSummary'), repo: $('repo'), token: $('token'),
+    connect: $('connect'), forget: $('forget'), connStatus: $('connStatus'),
+  };
+  const KEY = { draft: 'daybook-write-draft', conn: 'daybook-write-connection' };
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const pad = n => String(n).padStart(2, '0');
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const load = k => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } };
+  const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full or blocked */ } };
+  // same rule as build.mjs, so the URL here matches the URL the site gets
+  const slugify = s => String(s).toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/['’]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  const localStamp = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const parseStamp = s => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(s || '');
+    return m && { y: +m[1], mo: +m[2], d: +m[3], h: +m[4], mi: +m[5] };
+  };
+
+  let draft = load(KEY.draft) || { title: '', body: '', stamp: '' };
+  let conn = load(KEY.conn);
+  let busy = false;
+
+  /* ---------- the time this post will sit at ---------- */
+  // Empty stamp means "now" and follows the clock until you start writing.
+  const stamp = () => draft.stamp || localStamp(new Date());
+  function renderStamp() {
+    const s = parseStamp(stamp());
+    el.stampHour.textContent = `${s.h % 12 || 12}:${pad(s.mi)} ${s.h < 12 ? 'am' : 'pm'},`;
+    el.stampDate.textContent = `${MONTHS[s.mo - 1]} ${s.d}`;
+    if (document.activeElement !== el.stampInput) el.stampInput.value = stamp();
+    const hour = String(+(s.h + s.mi / 60).toFixed(3));
+    if (el.compose.dataset.hour !== hour) {
+      el.compose.dataset.hour = hour;          // the sky reads this...
+      dispatchEvent(new Event('resize'));      // ...and re-reads it on resize
+    }
+  }
+  el.changeTime.addEventListener('click', () => {
+    el.timeEdit.hidden = !el.timeEdit.hidden;
+    el.changeTime.setAttribute('aria-expanded', String(!el.timeEdit.hidden));
+    if (!el.timeEdit.hidden) el.stampInput.focus();
+  });
+  el.stampInput.addEventListener('change', () => {
+    if (parseStamp(el.stampInput.value)) { draft.stamp = el.stampInput.value; saveDraft(); renderStamp(); }
+  });
+  el.stampNow.addEventListener('click', () => { draft.stamp = localStamp(new Date()); saveDraft(); renderStamp(); });
+  setInterval(renderStamp, 20000);
+
+  /* ---------- drafting ---------- */
+  let saveTimer = 0;
+  function saveDraft() { clearTimeout(saveTimer); saveTimer = setTimeout(() => save(KEY.draft, draft), 250); }
+  const fit = t => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; };
+  function fitBody() { fit(el.title); fit(el.body); }
+  function onEdit() {
+    if (/\n/.test(el.title.value)) el.title.value = el.title.value.replace(/\s*\n+\s*/g, ' '); // titles are one line, even when pasted
+    draft.title = el.title.value;
+    draft.body = el.body.value;
+    if (!draft.stamp && (draft.title.trim() || draft.body.trim())) { draft.stamp = localStamp(new Date()); renderStamp(); }
+    saveDraft(); fitBody(); refreshButton(); renderShots();
+  }
+  el.title.addEventListener('input', onEdit);
+  el.body.addEventListener('input', onEdit);
+  el.title.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); el.body.focus(); } });
+
+  function refreshButton() {
+    if (!conn) { el.post.textContent = 'Connect to post'; el.post.disabled = busy; return; }
+    el.post.textContent = 'Post';
+    el.post.disabled = busy || !el.title.value.trim() || !el.body.value.trim();
+  }
+  function setStatus(html, problem = false) { el.status.innerHTML = html; el.status.classList.toggle('problem', problem); }
+  const escHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  /* ---------- photos, kept in IndexedDB until posted ---------- */
+  const store = (() => {
+    let dbp;
+    const open = () => dbp || (dbp = new Promise((res, rej) => {
+      const r = indexedDB.open('daybook-write', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('photos');
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    }));
+    const run = async (mode, fn) => {
+      const db = await open();
+      return new Promise((res, rej) => {
+        const tx = db.transaction('photos', mode), req = fn(tx.objectStore('photos'));
+        tx.oncomplete = () => res(req && req.result);
+        tx.onerror = () => rej(tx.error);
+      });
+    };
+    return {
+      put: (k, v) => run('readwrite', s => s.put(v, k)),
+      get: k => run('readonly', s => s.get(k)),
+      del: k => run('readwrite', s => s.delete(k)),
+      keys: () => run('readonly', s => s.getAllKeys()),
+      clear: () => run('readwrite', s => s.clear()),
+    };
+  })();
+
+  // Phone photos are huge. Scale to 1800px on the long edge and save as JPEG.
+  function shrink(file, max = 1800, quality = 0.82) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file), img = new Image();
+      img.onload = () => {
+        const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+        const g = c.getContext('2d');
+        g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+        g.drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        c.toBlob(b => (b ? resolve(b) : reject(new Error('encode'))), 'image/jpeg', quality);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('decode')); };
+      img.src = url;
+    });
+  }
+
+  function insertAtCursor(text, caretAt) {
+    const t = el.body, s = t.selectionStart ?? t.value.length, e = t.selectionEnd ?? s;
+    t.value = t.value.slice(0, s) + text + t.value.slice(e);
+    t.focus(); t.setSelectionRange(s + caretAt, s + caretAt);
+    onEdit();
+  }
+
+  el.addPhoto.addEventListener('click', () => el.photo.click());
+  el.photo.addEventListener('change', async () => {
+    const files = [...el.photo.files];
+    el.photo.value = '';
+    for (const file of files) {
+      try {
+        setStatus('Adding photo...');
+        const blob = await shrink(file);
+        const d = new Date();
+        const path = `images/${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}-${Math.random().toString(36).slice(2, 6)}.jpg`;
+        await store.put(path, blob);
+        const before = el.body.value.slice(0, el.body.selectionStart ?? el.body.value.length);
+        const lead = before === '' || before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n';
+        insertAtCursor(`${lead}![](/${path})\n\n`, lead.length + 2); // caret lands inside [ ] for a description
+        setStatus('Photo added. Type a short description between the brackets.');
+      } catch (e) {
+        setStatus("That photo couldn't be read. Try a JPEG or PNG.", true);
+      }
+    }
+  });
+
+  const referenced = () => new Set([...el.body.value.matchAll(/\]\(\/(images\/[^)\s]+)\)/g)].map(m => m[1]));
+  let shotUrls = [];
+  let shotsPending = false;
+  async function renderShots() {
+    if (shotsPending) return;
+    shotsPending = true;
+    await sleep(120);
+    shotsPending = false;
+    let keys = [];
+    try { keys = await store.keys(); } catch (e) { return; }
+    const used = referenced();
+    shotUrls.forEach(u => URL.revokeObjectURL(u)); shotUrls = [];
+    el.shots.innerHTML = '';
+    for (const k of keys) {
+      const blob = await store.get(k);
+      if (!blob) continue;
+      const url = URL.createObjectURL(blob); shotUrls.push(url);
+      const box = document.createElement('div');
+      box.className = 'shot' + (used.has(k) ? '' : ' unused');
+      box.innerHTML = `<img alt="" src="${url}"><button type="button" aria-label="Remove photo">&times;</button>`;
+      box.querySelector('button').addEventListener('click', async () => {
+        await store.del(k);
+        const esc = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        el.body.value = el.body.value.replace(new RegExp(`\\n?!\\[[^\\]]*\\]\\(\\/${esc}\\)\\n?`, 'g'), '\n');
+        onEdit();
+      });
+      el.shots.appendChild(box);
+    }
+  }
+
+  /* ---------- GitHub ---------- */
+  async function gh(path, opts = {}) {
+    let res;
+    try {
+      res = await fetch(`https://api.github.com${path}`, {
+        method: opts.method || 'GET',
+        cache: 'no-store',
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${conn.token}`,
+          ...(opts.body ? { 'Content-Type': 'application/json' } : {}),
+        },
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+      });
+    } catch (e) { const err = new Error('network'); err.status = 0; throw err; }
+    if (!res.ok) {
+      const err = new Error(`GitHub ${res.status}`); err.status = res.status;
+      try { err.detail = (await res.json()).message; } catch (e) { /* no body */ }
+      throw err;
+    }
+    return res.status === 204 ? null : res.json();
+  }
+  const encPath = p => p.split('/').map(encodeURIComponent).join('/');
+  async function repoHas(path) {
+    try { await gh(`/repos/${conn.repo}/contents/${encPath(path)}?ref=${encodeURIComponent(conn.branch)}`); return true; }
+    catch (e) { if (e.status === 404) return false; throw e; }
+  }
+  async function siteHas(slug) {
+    try { const r = await fetch(`../posts/${slug}/?c=${Date.now()}`, { method: 'HEAD', cache: 'no-store' }); return r.ok; }
+    catch (e) { return false; }
+  }
+
+  function b64(bytes) {
+    let s = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(s);
+  }
+  const b64text = s => b64(new TextEncoder().encode(s));
+  const b64blob = async blob => b64(new Uint8Array(await blob.arrayBuffer()));
+
+  // One commit for the post and its photos, so the site builds once.
+  async function commit(files, message) {
+    const R = `/repos/${conn.repo}`;
+    const tree = [];
+    for (const f of files) {
+      const blob = await gh(`${R}/git/blobs`, { method: 'POST', body: { content: f.base64, encoding: 'base64' } });
+      tree.push({ path: f.path, mode: '100644', type: 'blob', sha: blob.sha });
+    }
+    for (let attempt = 0; ; attempt++) {
+      const ref = await gh(`${R}/git/ref/heads/${conn.branch}`);
+      const head = await gh(`${R}/git/commits/${ref.object.sha}`);
+      const t = await gh(`${R}/git/trees`, { method: 'POST', body: { base_tree: head.tree.sha, tree } });
+      const c = await gh(`${R}/git/commits`, { method: 'POST', body: { message, tree: t.sha, parents: [ref.object.sha] } });
+      try { await gh(`${R}/git/refs/heads/${conn.branch}`, { method: 'PATCH', body: { sha: c.sha } }); return c; }
+      catch (e) { if (e.status !== 422 || attempt >= 2) throw e; } // someone pushed in between: rebase and retry
+    }
+  }
+
+  function explain(e) {
+    if (e.status === 401) return "GitHub didn't accept the token. It may have expired. Make a new one under Connection.";
+    if (e.status === 403 || e.status === 404) return "The token can't write to that repository. Check that it's allowed on the repo with Contents set to Read and write.";
+    if (e.status === 422 || e.status === 409) return `GitHub turned the commit down${e.detail ? ` (${escHtml(e.detail)})` : ''}. Try posting again.`;
+    if (e.status) return `GitHub answered ${e.status}${e.detail ? `: ${escHtml(e.detail)}` : ''}.`;
+    return "Couldn't reach GitHub. Check your connection and try again.";
+  }
+
+  /* ---------- posting ---------- */
+  el.post.addEventListener('click', async () => {
+    if (!conn) { el.settings.open = true; el.repo.focus(); return; }
+    const title = el.title.value.trim(), body = el.body.value.replace(/\s+$/, '') + '\n';
+    if (!title || !body.trim()) return;
+    busy = true; refreshButton();
+    el.title.disabled = el.body.disabled = true;
+    try {
+      const s = parseStamp(stamp());
+      const day = `${s.y}-${pad(s.mo)}-${pad(s.d)}`;
+      const base = slugify(title) || 'post';
+      setStatus('Checking the name is free...');
+      let slug = base, file = '';
+      for (let n = 1; n < 50; n++) {
+        slug = n === 1 ? base : `${base}-${n}`;
+        file = `posts/${day}-${slug}.md`;
+        if (!(await repoHas(file)) && !(await siteHas(slug))) break;
+      }
+      const text = `---\ntitle: ${JSON.stringify(title)}\ndate: ${day} ${pad(s.h)}:${pad(s.mi)}\n---\n\n${body}`;
+      const files = [{ path: file, base64: b64text(text) }];
+      const used = [...referenced()];
+      for (const p of used) {
+        const blob = await store.get(p);
+        if (blob) files.push({ path: `public/${p}`, base64: await b64blob(blob) });
+      }
+      setStatus(used.length ? `Uploading ${used.length === 1 ? 'the photo' : `${used.length} photos`} and the post...` : 'Posting...');
+      await commit(files, `Post: ${title}`);
+
+      // Committed: the draft's job is done
+      draft = { title: '', body: '', stamp: '' };
+      localStorage.removeItem(KEY.draft);
+      await store.clear().catch(() => {});
+      el.title.value = ''; el.body.value = '';
+      el.title.disabled = el.body.disabled = false;
+      fitBody(); renderShots(); renderStamp();
+
+      const url = new URL(`../posts/${slug}/`, location.href).href;
+      const actions = `https://github.com/${conn.repo}/actions`;
+      setStatus(`Posted. The site is rebuilding, which takes about a minute. <a href="${actions}" target="_blank" rel="noopener">Watch the build</a>`);
+      for (let i = 0; i < 48; i++) {
+        await sleep(5000);
+        if (await siteHas(slug)) {
+          setStatus(`It's live: <a href="${url}">${escHtml(title)}</a>`);
+          return;
+        }
+      }
+      setStatus(`Posted, but the site hasn't updated after four minutes. <a href="${actions}" target="_blank" rel="noopener">Check the build</a>`, true);
+    } catch (e) {
+      setStatus(`${explain(e)} Your draft is still saved on this device.`, true);
+    } finally {
+      busy = false;
+      el.title.disabled = el.body.disabled = false;
+      refreshButton();
+    }
+  });
+
+  /* ---------- connection ---------- */
+  function renderConn() {
+    el.summary.textContent = conn ? `Connected to ${conn.repo}` : 'Connection';
+    el.repo.value = conn?.repo || el.repo.value;
+    el.token.placeholder = conn ? 'Saved on this device' : 'github_pat_...';
+    refreshButton();
+  }
+  el.connect.addEventListener('click', async () => {
+    const repo = el.repo.value.trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/, '').replace(/\/+$/, '');
+    const token = el.token.value.trim() || conn?.token;
+    const say = (t, problem) => { el.connStatus.textContent = t; el.connStatus.classList.toggle('problem', !!problem); };
+    if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return say('Enter the repository as owner/repo, like paperhurts/daybook.', true);
+    if (!token) return say('Paste a token first. Steps are below.', true);
+    const previous = conn;
+    conn = { repo, token, branch: 'main' };
+    el.connect.disabled = true; say('Checking...');
+    try {
+      const info = await gh(`/repos/${repo}`);
+      conn.branch = info.default_branch || 'main';
+      save(KEY.conn, conn);
+      el.token.value = '';
+      say(`Connected. Posts will go to ${repo} on ${conn.branch}.`);
+      setTimeout(() => { el.settings.open = false; }, 1200);
+    } catch (e) {
+      conn = previous;
+      say(explain(e).replace(/<[^>]+>/g, ''), true);
+    } finally {
+      el.connect.disabled = false;
+      renderConn();
+    }
+  });
+  el.forget.addEventListener('click', () => {
+    localStorage.removeItem(KEY.conn); conn = null;
+    el.connStatus.textContent = 'Token removed from this device.';
+    renderConn();
+  });
+
+  /* ---------- start ---------- */
+  el.title.value = draft.title;
+  el.body.value = draft.body;
+  renderStamp(); renderConn(); fitBody(); renderShots();
+  addEventListener('resize', fitBody);
+  if (!conn) el.settings.open = true;
+  else if (draft.title || draft.body) setStatus('Picked up where you left off.');
+})();
+</script>
+<script src="../assets/sky.js" defer></script>
+</body>
+</html>
