@@ -34,7 +34,10 @@
 .shot img{width:100%;height:100%;object-fit:cover;display:block}
 .shot.unused img{opacity:.35}
 .shot button{position:absolute;top:.2rem;right:.2rem;width:1.6rem;height:1.6rem;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font:600 1rem/1 system-ui,sans-serif;cursor:pointer}
-.actions{display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-top:1.4rem;padding-top:1.1rem;border-top:1px solid var(--rule)}
+#body[hidden]{display:none}
+.preview{min-height:42vh}
+.tools{display:flex;flex-wrap:wrap;gap:.5rem}
+.actions{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:.75rem 1rem;margin-top:1.4rem;padding-top:1.1rem;border-top:1px solid var(--rule)}
 .btn{display:inline-flex;align-items:center;gap:.45em;font:inherit;line-height:1;color:var(--ink);background:none;border:1px solid var(--pane-edge);border-radius:999px;padding:.65em 1.1em;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .btn svg{width:1.15em;height:1.15em}
 .btn.primary{color:var(--accent);border:1.5px solid var(--accent);font-weight:500;padding:.65em 1.5em}
@@ -81,14 +84,18 @@
     <textarea id="title" class="title-input" placeholder="Title" rows="1" autocomplete="off" enterkeyhint="next"></textarea>
     <label class="visually-hidden" for="body">Post</label>
     <textarea id="body" placeholder="Write." rows="8"></textarea>
+    <div class="prose preview" id="preview" hidden></div>
 
     <div class="shots" id="shots" aria-label="Attached photos"></div>
 
     <div class="actions">
+      <div class="tools">
       <button type="button" class="btn" id="addPhoto">
         <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M4 7.5h3l1.6-2.2h6.8L17 7.5h3V19H4z"/><circle cx="12" cy="13" r="3.6"/></svg>
         Add photo
       </button>
+      <button type="button" class="btn" id="previewBtn" aria-pressed="false">Preview</button>
+      </div>
       <input type="file" id="photo" accept="image/*" multiple class="visually-hidden" tabindex="-1" aria-hidden="true">
       <button type="button" class="btn primary" id="post" disabled>Post</button>
     </div>
@@ -127,7 +134,7 @@
   const el = {
     compose: $('compose'), stampHour: $('stampHour'), stampDate: $('stampDate'), changeTime: $('changeTime'),
     timeEdit: $('timeEdit'), stampInput: $('stampInput'), stampNow: $('stampNow'), title: $('title'), body: $('body'),
-    shots: $('shots'), addPhoto: $('addPhoto'), photo: $('photo'), post: $('post'), status: $('status'),
+    shots: $('shots'), preview: $('preview'), previewBtn: $('previewBtn'), addPhoto: $('addPhoto'), photo: $('photo'), post: $('post'), status: $('status'),
     settings: $('settings'), summary: $('settingsSummary'), repo: $('repo'), token: $('token'),
     connect: $('connect'), forget: $('forget'), connStatus: $('connStatus'),
   };
@@ -261,6 +268,7 @@
 
   el.addPhoto.addEventListener('click', () => el.photo.click());
   el.photo.addEventListener('change', async () => {
+    if (!el.preview.hidden) showEditor(); // the photo goes in at the cursor, so show the text
     const files = [...el.photo.files];
     el.photo.value = '';
     for (const file of files) {
@@ -309,6 +317,45 @@
       el.shots.appendChild(box);
     }
   }
+
+  /* ---------- preview, with the site's own markdown rules ---------- */
+  let renderer = null, fitDemos = () => {}, misses = [], previewUrls = [];
+  function markdown() {
+    return renderer || (renderer = (async () => {
+      const [{ Marked }, rules] = await Promise.all([import('../assets/marked.esm.js'), import('../assets/markdown.js')]);
+      let posts = [];
+      try { posts = await (await fetch('../assets/posts.json', { cache: 'no-store' })).json(); } catch (e) { /* offline: [[links]] show as missing */ }
+      const bySlug = new Map(posts.map(p => [p.slug, p])), byTitle = new Map(posts.map(p => [p.title.toLowerCase(), p]));
+      fitDemos = rules.fitDemos;
+      return rules.createMarkdown(Marked, {
+        resolve: t => { const p = byTitle.get(t.toLowerCase()) || bySlug.get(rules.slugify(t)); return p ? { href: `/posts/${p.slug}/`, title: p.title } : null; },
+        missing: t => misses.push(t),
+      });
+    })().catch(e => { renderer = null; throw e; }));
+  }
+  async function showPreview() {
+    let md;
+    try { md = await markdown(); } catch (e) { return setStatus("The preview couldn't load. It needs a connection the first time.", true); }
+    misses = [];
+    el.preview.innerHTML = el.body.value.trim() ? md.parse(el.body.value) : '<p class="when">Nothing to preview yet.</p>';
+    previewUrls.forEach(u => URL.revokeObjectURL(u)); previewUrls = [];
+    for (const img of el.preview.querySelectorAll('img[src^="/images/"]')) { // photos not posted yet live on this device
+      const blob = await store.get(img.getAttribute('src').slice(1)).catch(() => null);
+      if (blob) { const u = URL.createObjectURL(blob); previewUrls.push(u); img.src = u; }
+    }
+    fitDemos(el.preview);
+    el.body.hidden = true; el.preview.hidden = false;
+    el.previewBtn.textContent = 'Edit'; el.previewBtn.setAttribute('aria-pressed', 'true');
+    const names = [...new Set(misses)];
+    setStatus(names.length ? `${names.map(n => `[[${escHtml(n)}]]`).join(', ')} ${names.length === 1 ? "doesn't" : "don't"} match any post yet.` : '', names.length > 0);
+  }
+  function showEditor() {
+    if (el.preview.hidden) return;
+    el.preview.hidden = true; el.body.hidden = false;
+    el.previewBtn.textContent = 'Preview'; el.previewBtn.setAttribute('aria-pressed', 'false');
+    fitBody();
+  }
+  el.previewBtn.addEventListener('click', () => (el.preview.hidden ? showPreview() : showEditor()));
 
   /* ---------- GitHub ---------- */
   async function gh(path, opts = {}) {
@@ -422,7 +469,7 @@
       await store.clear().catch(() => {});
       el.title.value = ''; el.body.value = '';
       el.title.disabled = el.body.disabled = false;
-      fitBody(); renderShots(); renderStamp();
+      showEditor(); fitBody(); renderShots(); renderStamp();
 
       const url = new URL(`../posts/${slug}/`, location.href).href;
       const actions = `https://github.com/${conn.repo}/actions`;

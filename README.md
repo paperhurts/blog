@@ -42,7 +42,7 @@ Posts written between midnight and 4 am stay at the end of the night before, ins
 
 ### From your phone
 
-https://paperhurts.com/write/ is a composer you save to the home screen. It posts straight to this repo with a fine-grained GitHub token (this repo only, Contents read and write) that stays on the phone. Drafts stay on the phone as well. Each post, photos included, is a single commit authored with the account's no-reply address. Photos land in `public/images/`.
+https://paperhurts.com/write/ is a composer you save to the home screen. It posts straight to this repo with a fine-grained GitHub token (this repo only, Contents read and write) that stays on the phone. Drafts stay on the phone as well. Each post, photos included, is a single commit authored with the account's no-reply address. Photos land in `public/images/`: shrunk to JPEG, except that anything with transparency stays PNG, and small PNGs and GIFs go up untouched. **Preview** renders the post with the site's own markdown rules (`src/markdown.js`), shows photos that haven't been posted yet, and flags any `[[link]]` that doesn't match a post.
 
 ### Linking between posts
 
@@ -95,4 +95,5 @@ paperhurts.com's DNS lives in Cloudflare. Its four A records point at GitHub Pag
 - `build.mjs`: the generator and dev server. Reads posts, renders markdown, writes pages, archive, feed, and 404.
 - `src/sky.js`: the sky. Maps scroll position to time of day, runs the weather, and sets the page's colors from the light.
 - `src/style.css`: all styles.
+- `src/markdown.js`: the markdown rules (wikilinks, demo embeds, headings shifted down a level), shared by the build and the composer's preview. The build publishes it to `/assets/` along with marked's browser build and `posts.json`.
 - The weather picker is `stepWeather()` in `src/sky.js`. Swap its random choice for real conditions and the sky follows the actual weather.

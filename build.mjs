@@ -14,6 +14,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import matter from 'gray-matter';
 import { Marked } from 'marked';
+import { createMarkdown, esc, fitDemos, slugify } from './src/markdown.js';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const P = (...parts) => path.join(DIR, ...parts);
@@ -37,11 +38,8 @@ const DEFAULTS = {
 /* ---------------------------------------------------------------- helpers */
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const hash = s => crypto.createHash('sha1').update(s).digest('hex').slice(0, 8);
 const pad = n => String(n).padStart(2, '0');
-const slugify = s => String(s).toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
-  .replace(/['’]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
 function fmtHour(h) {
   const total = Math.round((((h % 24) + 24) % 24) * 60);
@@ -156,7 +154,6 @@ async function build({ drafts = false, dev = false } = {}) {
   servedBase = base;
   const url = p => base + p;
   const abs = p => site.url + base + p;
-  const fixUrl = href => (href && href.startsWith('/') && !href.startsWith('//') ? base + href : href);
 
   const posts = await loadPosts({ drafts, warn });
   const postUrl = p => url(`/posts/${p.slug}/`);
@@ -167,55 +164,15 @@ async function build({ drafts = false, dev = false } = {}) {
   const backlinks = new Map(posts.map(p => [p, new Set()]));
   let current = null;
 
-  // ![caption](/demos/plasma.html) embeds a live page instead of an image
-  const isDemo = href => /\.html?(?:[?#].*)?$/i.test(href || '');
-  const demo = (href, text) => {
-    const src = esc(fixUrl(href));
-    return `<figure class="demo"><iframe src="${src}" title="${esc(text || 'Demo')}" loading="lazy"></iframe>` +
-      `<figcaption>${text ? `${esc(text)}. ` : ''}<a href="${src}">Open it on its own page</a></figcaption></figure>`;
-  };
-
-  const md = new Marked({ gfm: true });
-  md.use({
-    renderer: {
-      heading({ tokens, depth }) {
-        const d = Math.min(6, depth + 1); // the post title is the page's h1
-        return `<h${d}>${this.parser.parseInline(tokens)}</h${d}>\n`;
-      },
-      paragraph({ tokens }) {
-        // a demo on a line by itself is a figure, and a figure can't sit inside <p>
-        const solo = tokens.filter(t => t.type !== 'text' || t.text.trim());
-        if (solo.length === 1 && solo[0].type === 'image' && isDemo(solo[0].href)) return this.parser.parseInline(solo) + '\n';
-        return `<p>${this.parser.parseInline(tokens)}</p>\n`;
-      },
-      link({ href, title, tokens }) {
-        return `<a href="${esc(fixUrl(href))}"${title ? ` title="${esc(title)}"` : ''}>${this.parser.parseInline(tokens)}</a>`;
-      },
-      image({ href, title, text }) {
-        if (isDemo(href)) return demo(href, text);
-        return `<img src="${esc(fixUrl(href))}" alt="${esc(text)}"${title ? ` title="${esc(title)}"` : ''} loading="lazy">`;
-      },
+  const md = createMarkdown(Marked, {
+    base,
+    resolve: target => {
+      const hit = lookup.get(target.toLowerCase()) || lookup.get(slugify(target));
+      if (!hit) return null;
+      if (current && hit !== current) backlinks.get(hit).add(current);
+      return { href: postUrl(hit), title: hit.title };
     },
-    extensions: [{
-      name: 'wikilink',
-      level: 'inline',
-      start(src) { const i = src.indexOf('[['); return i < 0 ? undefined : i; },
-      tokenizer(src) {
-        const m = /^\[\[([^\]|\n]+)(?:\|([^\]\n]+))?\]\]/.exec(src);
-        if (m) return { type: 'wikilink', raw: m[0], target: m[1].trim(), label: m[2]?.trim() };
-      },
-      renderer(t) {
-        // [[https://...]] points somewhere else entirely, so it's an ordinary link
-        if (/^(https?:)?\/\//i.test(t.target)) return `<a href="${esc(t.target)}">${esc(t.label || t.target)}</a>`;
-        const hit = lookup.get(t.target.toLowerCase()) || lookup.get(slugify(t.target));
-        if (!hit) {
-          if (current) warn(`${current.file}: [[${t.target}]] doesn't match any post yet.`);
-          return `<span class="wikilink-missing" title="No post called “${esc(t.target)}” yet">${esc(t.label || t.target)}</span>`;
-        }
-        if (current && hit !== current) backlinks.get(hit).add(current);
-        return `<a href="${postUrl(hit)}">${esc(t.label || hit.title)}</a>`;
-      },
-    }],
+    missing: target => { if (current) warn(`${current.file}: [[${target}]] doesn't match any post yet.`); },
   });
 
   for (const p of posts) {
@@ -245,18 +202,7 @@ async function build({ drafts = false, dev = false } = {}) {
   const cssHref = `${url('/assets/style.css')}?v=${hash(css)}`;
   const jsHref = `${url('/assets/sky.js')}?v=${hash(js)}`;
 
-  // Demos are same-origin pages, so each frame can grow to fit what it holds. A fitted
-  // frame hides its scrollbar, which would otherwise narrow the page and change its
-  // height. The cap stops a page whose height follows its own viewport from growing forever.
-  const fitDemos = `for (const f of document.querySelectorAll('.demo iframe')) f.addEventListener('load', () => {
-  const d = f.contentDocument?.documentElement;
-  if (d) new ResizeObserver(() => {
-    const h = d.offsetHeight, max = innerHeight * 3;
-    if (!h) return;
-    d.style.overflow = h > max ? '' : 'hidden';
-    f.style.height = Math.min(h, max) + 'px';
-  }).observe(d);
-});`;
+
 
   const page = ({ title, description = site.description || site.tagline, at, hour, body, type = 'website' }) => `<!doctype html>
 <html lang="en">
@@ -284,7 +230,7 @@ ${description ? `<meta name="description" content="${esc(description)}">\n` : ''
 </div>
 <main class="page">
 ${body}
-</main>${body.includes('class="demo"') ? `\n<script>${fitDemos}</script>` : ''}
+</main>${body.includes('class="demo"') ? `\n<script>(${fitDemos})(document);</script>` : ''}
 <script src="${jsHref}" defer></script>${dev ? `\n<script>new EventSource('/__reload').onmessage = () => location.reload();</script>` : ''}
 </body>
 </html>
@@ -352,6 +298,11 @@ ${stream}<footer class="night col" data-hour="${hourAttr(night)}">
 
   await write('assets/style.css', css);
   await write('assets/sky.js', js);
+  // the composer at /write/ previews with the same markdown rules, and needs the posts to resolve [[links]]
+  await write('assets/markdown.js', await fs.readFile(P('src', 'markdown.js'), 'utf8'));
+  const markedEsm = await fs.readFile(P('node_modules', 'marked', 'lib', 'marked.esm.js'), 'utf8');
+  await write('assets/marked.esm.js', markedEsm.replace(/\n\/\/# sourceMappingURL=\S*\s*$/, '\n'));
+  await write('assets/posts.json', JSON.stringify(posts.map(p => ({ slug: p.slug, title: p.title }))));
   await write('.nojekyll', '');
   await write('index.html', page({ title: site.title, at: '/', hour: dawn, body: homeBody }));
 
