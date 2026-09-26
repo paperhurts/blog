@@ -72,23 +72,19 @@ It renders as a live frame across the full width of the pane, sized to fit the p
 
 ## Publish
 
-`.github/workflows/deploy.yml` builds the site on every push to `main`. It doesn't publish until launch. To launch:
-
-1. In the repo, go to Settings > Pages, set Source to "GitHub Actions", and set the custom domain to `paperhurts.com`.
-2. Run `gh variable set PAGES_LIVE --body true --repo paperhurts/blog`. From then on, every push to `main` publishes.
-3. Point paperhurts.com's DNS at GitHub Pages.
+Every push to `main` builds the site and publishes it to GitHub Pages at https://paperhurts.com (`.github/workflows/deploy.yml`). The repo variable `PAGES_LIVE` turns publishing on; set it to anything but `true` to keep building without publishing.
 
 ## Domains
 
-paperhurts.com currently hosts the landing page for the reader app. That page is moving to its own subdomain so the blog can take the apex:
+The blog took over paperhurts.com on 2026-09-25. The reader's landing page, which used to live there, moved to its own subdomain:
 
 | Address | Serves | Source |
 |---|---|---|
-| paperhurts.com | this blog | `paperhurts/blog` |
+| paperhurts.com | this blog | `paperhurts/blog` (GitHub Pages; DNS on Cloudflare, DNS only) |
 | reader.paperhurts.dev | reader landing page | `paperhurts/paperhurts-site` (GitHub Pages) |
 | paperhurts.dev | studio homepage | `paperhurts/paperhurts.github.io` |
 
-The landing page has to be live at reader.paperhurts.dev before paperhurts.com switches over, so the reader never goes dark. The ordered checklist is in the admin repo's `TODO.md`.
+paperhurts.com's DNS lives in Cloudflare. Its four A records point at GitHub Pages and must stay **DNS only**; if they're proxied, GitHub can't renew the certificate.
 
 ## What's where
 

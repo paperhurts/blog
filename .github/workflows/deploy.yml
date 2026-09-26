@@ -1,9 +1,8 @@
 name: Deploy
 
-# Builds the site on every push to main. Publishing to GitHub Pages waits for launch: the publish steps run only once
-# the repo variable PAGES_LIVE is "true". At launch, set Settings > Pages >
-# Source to "GitHub Actions" and the custom domain to paperhurts.com, then:
-#   gh variable set PAGES_LIVE --body true --repo paperhurts/blog
+# Builds the site on every push to main and publishes it to GitHub Pages at
+# paperhurts.com. The publish steps run only while the repo variable
+# PAGES_LIVE is "true", which it has been since launch on 2026-09-25.
 
 on:
   push:
