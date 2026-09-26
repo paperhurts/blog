@@ -65,6 +65,7 @@ a:focus-visible,button:focus-visible{outline:2px solid currentColor;outline-offs
 .post h3 a{text-decoration:none;background:linear-gradient(currentColor,currentColor) 0 100%/0 1px no-repeat;transition:background-size .35s ease}
 .post h3 a:hover,.post h3 a:focus-visible{background-size:100% 1px}
 .post p{max-width:33em}
+.post img{display:block;max-width:100%;height:auto;border-radius:3px;margin:.4em 0 1em}
 .post p:last-child{margin-bottom:0}
 
 /* Closing: night */

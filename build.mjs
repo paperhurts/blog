@@ -205,6 +205,8 @@ async function build({ drafts = false, dev = false } = {}) {
         if (m) return { type: 'wikilink', raw: m[0], target: m[1].trim(), label: m[2]?.trim() };
       },
       renderer(t) {
+        // [[https://...]] points somewhere else entirely, so it's an ordinary link
+        if (/^(https?:)?\/\//i.test(t.target)) return `<a href="${esc(t.target)}">${esc(t.label || t.target)}</a>`;
         const hit = lookup.get(t.target.toLowerCase()) || lookup.get(slugify(t.target));
         if (!hit) {
           if (current) warn(`${current.file}: [[${t.target}]] doesn't match any post yet.`);
