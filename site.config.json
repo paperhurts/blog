@@ -1,16 +1,16 @@
 {
-  "title": "Daybook",
-  "tagline": "A journal that keeps its own weather.",
-  "description": "A journal that keeps its own weather. Posts sit at the hour they were written.",
+  "title": "paperhurts",
+  "tagline": "Projects, and why I built them.",
+  "description": "A post for each project: what it is, why it happened, and what I learned building it.",
   "url": "https://paperhurts.com",
   "basePath": "",
   "homeLimit": 30,
   "dawn": 4.75,
   "night": 23.6,
   "interludes": [
-    { "hour": 5.6,  "title": "first light",   "line": "Nothing has gone wrong yet." },
-    { "hour": 12,   "title": "high noon",     "line": "Shadows tuck themselves under everything." },
-    { "hour": 17.7, "title": "golden hour",   "line": "Everything looks like it means something." },
+    { "hour": 5.6, "title": "first light", "line": "Nothing has gone wrong yet." },
+    { "hour": 12, "title": "high noon", "line": "Shadows tuck themselves under everything." },
+    { "hour": 17.7, "title": "golden hour", "line": "Everything looks like it means something." },
     { "hour": 20.7, "title": "the long blue", "line": "Porch lights, crickets, one more chapter." }
   ],
   "closing": {
