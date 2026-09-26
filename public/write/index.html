@@ -35,6 +35,14 @@
 .shot.unused img{opacity:.35}
 .shot button{position:absolute;top:.2rem;right:.2rem;width:1.6rem;height:1.6rem;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font:600 1rem/1 system-ui,sans-serif;cursor:pointer}
 #body[hidden]{display:none}
+.editing{margin:0 0 .5em;font-style:italic;color:var(--muted)}
+.editing[hidden]{display:none}
+.editing a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:.2em}
+.library{list-style:none;margin:0;padding:0}
+.library li+li{border-top:1px solid var(--rule)}
+.library button{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;width:100%;font:inherit;color:var(--ink);background:none;border:0;padding:.65em 0;text-align:left;cursor:pointer}
+.library small{flex:none;font-style:italic;color:var(--muted)}
+#library{margin-bottom:0}
 .preview{min-height:42vh}
 .tools{display:flex;flex-wrap:wrap;gap:.5rem}
 .actions{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:.75rem 1rem;margin-top:1.4rem;padding-top:1.1rem;border-top:1px solid var(--rule)}
@@ -70,6 +78,7 @@
   <nav class="topbar col" aria-label="Site"><a href="../">paperhurts</a></nav>
 
   <section class="pane col compose" id="compose" data-hour="12" aria-label="New post">
+    <p class="editing" id="editing" hidden>Editing <a id="editingLink"></a>. <button type="button" class="linkbtn" id="newPost">Start a new post instead</button></p>
     <p class="when">
       <span>Sits at</span>
       <span class="hour" id="stampHour"></span><span id="stampDate"></span>
@@ -101,6 +110,12 @@
     </div>
     <p class="status" id="status" role="status" aria-live="polite"></p>
   </section>
+
+  <details class="pane col settings" id="library">
+    <summary>Edit a post</summary>
+    <ul class="library" id="postList"></ul>
+    <p class="when">Just posted something? It shows up here once the site has rebuilt.</p>
+  </details>
 
   <details class="pane col settings" id="settings">
     <summary id="settingsSummary">Connection</summary>
@@ -134,7 +149,7 @@
   const el = {
     compose: $('compose'), stampHour: $('stampHour'), stampDate: $('stampDate'), changeTime: $('changeTime'),
     timeEdit: $('timeEdit'), stampInput: $('stampInput'), stampNow: $('stampNow'), title: $('title'), body: $('body'),
-    shots: $('shots'), preview: $('preview'), previewBtn: $('previewBtn'), addPhoto: $('addPhoto'), photo: $('photo'), post: $('post'), status: $('status'),
+    shots: $('shots'), editing: $('editing'), editingLink: $('editingLink'), newPost: $('newPost'), library: $('library'), postList: $('postList'), preview: $('preview'), previewBtn: $('previewBtn'), addPhoto: $('addPhoto'), photo: $('photo'), post: $('post'), status: $('status'),
     settings: $('settings'), summary: $('settingsSummary'), repo: $('repo'), token: $('token'),
     connect: $('connect'), forget: $('forget'), connStatus: $('connStatus'),
   };
@@ -200,7 +215,7 @@
 
   function refreshButton() {
     if (!conn) { el.post.textContent = 'Connect to post'; el.post.disabled = busy; return; }
-    el.post.textContent = 'Post';
+    el.post.textContent = draft.editing ? 'Save changes' : 'Post';
     el.post.disabled = busy || !el.title.value.trim() || !el.body.value.trim();
   }
   function setStatus(html, problem = false) { el.status.innerHTML = html; el.status.classList.toggle('problem', problem); }
@@ -435,6 +450,131 @@
     return "Couldn't reach GitHub. Check your connection and try again.";
   }
 
+  /* ---------- editing a post that's already up ---------- */
+  // A draft with .editing is a change to an existing post: { path, sha, slug, title, text, stamp },
+  // where text and stamp are the file as it was opened. Saving rewrites only what changed: a new
+  // title or time replaces its own line in the front matter, and anything else up there stays.
+  const fromB64 = s => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\s/g, '')), c => c.charCodeAt(0)));
+  function splitPost(text) {
+    const m = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)([\s\S]*)$/.exec(text);
+    return m ? { head: m[1], body: m[2].replace(/^(?:[ \t]*\r?\n)+/, '') } : { head: '', body: text };
+  }
+  function headValue(head, key) {
+    const m = new RegExp(`^${key}:[ \\t]*(.*?)[ \\t]*\\r?$`, 'm').exec(head);
+    if (!m) return null;
+    const v = m[1];
+    if (v.startsWith('"')) { try { return JSON.parse(v); } catch (e) { return v.slice(1, -1); } }
+    if (v.startsWith("'")) return v.slice(1, -1).replace(/''/g, "'");
+    return v;
+  }
+  function stampFrom(value) { // the same date forms build.mjs reads; no time means noon, as on the site
+    const m = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::\d{2})?\s*(am|pm)?)?/i.exec(String(value || '').trim());
+    if (!m) return '';
+    let h = m[4] ? +m[4] : 12;
+    const ap = m[6]?.toLowerCase();
+    if (ap === 'pm' && h < 12) h += 12;
+    if (ap === 'am' && h === 12) h = 0;
+    return `${m[1]}-${pad(+m[2])}-${pad(+m[3])}T${pad(h)}:${m[5] || '00'}`;
+  }
+  function rewritten(ed, title, body, when) {
+    let head = splitPost(ed.text).head;
+    const set = (key, line) => { head = new RegExp(`^${key}:.*$`, 'm').test(head) ? head.replace(new RegExp(`^${key}:.*$`, 'm'), () => line) : `${head}\n${line}`.replace(/^\n/, ''); };
+    if (title !== headValue(head, 'title')) set('title', `title: ${JSON.stringify(title)}`);
+    if (when !== ed.stamp) { const s = parseStamp(when); set('date', `date: ${s.y}-${pad(s.mo)}-${pad(s.d)} ${pad(s.h)}:${pad(s.mi)}`); }
+    return `---\n${head}\n---\n\n${body}`;
+  }
+  const pageText = async slug => {
+    try { const r = await fetch(`../posts/${slug}/?c=${Date.now()}`, { cache: 'no-store' }); return r.ok ? await r.text() : ''; }
+    catch (e) { return ''; }
+  };
+
+  function renderEditing() {
+    const ed = draft.editing;
+    el.editing.hidden = !ed;
+    if (ed) { el.editingLink.textContent = ed.title || 'this post'; el.editingLink.href = `../posts/${ed.slug}/`; }
+    refreshButton();
+  }
+  function startFresh() {
+    draft = { title: '', body: '', stamp: '' };
+    localStorage.removeItem(KEY.draft);
+    el.title.value = ''; el.body.value = '';
+    showEditor(); fitBody(); renderShots(); renderStamp(); renderEditing();
+  }
+  el.newPost.addEventListener('click', async () => {
+    const ed = draft.editing;
+    const changed = ed && (el.title.value !== ed.title || el.body.value !== splitPost(ed.text).body || stamp() !== ed.stamp);
+    if (changed && !confirm('Drop your changes to this post?')) return;
+    await store.clear().catch(() => {});
+    startFresh(); setStatus('');
+  });
+
+  async function openPost(p) {
+    if (!conn) { el.settings.open = true; el.repo.focus(); return; }
+    const path = `posts/${p.file}`;
+    const other = draft.editing ? draft.editing.path !== path : (draft.title.trim() || draft.body.trim());
+    if (other && !confirm("Put away what you're writing and open this post instead? What you have now won't be kept.")) return;
+    try {
+      setStatus(`Opening ${escHtml(p.title)}...`);
+      const f = await gh(`/repos/${conn.repo}/contents/${encPath(path)}?ref=${encodeURIComponent(conn.branch)}`);
+      const text = fromB64(f.content), { head, body } = splitPost(text);
+      const title = headValue(head, 'title') ?? p.title;
+      const when = stampFrom(headValue(head, 'date')) || stampFrom(p.date) || localStamp(new Date());
+      await store.clear().catch(() => {});
+      draft = { title, body, stamp: when, editing: { path, sha: f.sha, slug: p.slug, title, text, stamp: when } };
+      save(KEY.draft, draft);
+      el.title.value = title; el.body.value = body;
+      showEditor(); fitBody(); renderShots(); renderStamp(); renderEditing();
+      setStatus('');
+      scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (e) { setStatus(explain(e), true); }
+  }
+
+  el.library.addEventListener('toggle', async () => {
+    if (!el.library.open) return;
+    el.postList.innerHTML = '<li class="when">Loading...</li>';
+    try {
+      const posts = await (await fetch('../assets/posts.json', { cache: 'no-store' })).json();
+      posts.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+      el.postList.innerHTML = '';
+      for (const p of posts) {
+        const s = parseStamp(p.date), li = document.createElement('li'), b = document.createElement('button');
+        b.type = 'button';
+        b.innerHTML = `<span>${escHtml(p.title)}</span><small>${s ? `${MONTHS[s.mo - 1].slice(0, 3)} ${s.d}, ${s.y}` : ''}</small>`;
+        b.addEventListener('click', () => { el.library.open = false; openPost(p); });
+        li.appendChild(b); el.postList.appendChild(li);
+      }
+    } catch (e) { el.postList.innerHTML = '<li class="when">The list of posts needs a connection.</li>'; }
+  });
+
+  // Saving an edit: one commit, then wait until the live page actually shows the change
+  async function saveEdit(title, body) {
+    const ed = draft.editing;
+    setStatus('Checking the post first...');
+    const current = await gh(`/repos/${conn.repo}/contents/${encPath(ed.path)}?ref=${encodeURIComponent(conn.branch)}`);
+    if (current.sha !== ed.sha && !confirm('This post changed on GitHub since you opened it. Save your version over it?')) {
+      setStatus('Not saved. Your changes are still here.'); return;
+    }
+    const text = rewritten(ed, title, body, stamp());
+    const used = [...referenced()], files = [{ path: ed.path, base64: b64text(text) }];
+    for (const p of used) { const blob = await store.get(p); if (blob) files.push({ path: `public/${p}`, base64: await b64blob(blob) }); }
+    if (text === fromB64(current.content) && files.length === 1) { setStatus('Nothing to save: the post already reads like this.'); return; }
+    const before = await pageText(ed.slug);
+    setStatus(files.length > 1 ? 'Saving the post and its new photos...' : 'Saving...');
+    await commit(files, `Edit: ${title}`);
+
+    await store.clear().catch(() => {});
+    const slug = ed.slug;
+    startFresh();
+    const url = new URL(`../posts/${slug}/`, location.href).href, actions = `https://github.com/${conn.repo}/actions`;
+    setStatus(`Saved. The site is rebuilding, which takes about a minute. <a href="${actions}" target="_blank" rel="noopener">Watch the build</a>`);
+    for (let i = 0; i < 48; i++) {
+      await sleep(5000);
+      const now = await pageText(slug);
+      if (now && now !== before) { setStatus(`It's updated: <a href="${url}">${escHtml(title)}</a>`); return; }
+    }
+    setStatus(`Saved, but the page hasn't changed after four minutes. <a href="${actions}" target="_blank" rel="noopener">Check the build</a>`, true);
+  }
+
   /* ---------- posting ---------- */
   el.post.addEventListener('click', async () => {
     if (!conn) { el.settings.open = true; el.repo.focus(); return; }
@@ -443,6 +583,7 @@
     busy = true; refreshButton();
     el.title.disabled = el.body.disabled = true;
     try {
+      if (draft.editing) return await saveEdit(title, body);
       const s = parseStamp(stamp());
       const day = `${s.y}-${pad(s.mo)}-${pad(s.d)}`;
       const base = slugify(title) || 'post';
@@ -469,7 +610,7 @@
       await store.clear().catch(() => {});
       el.title.value = ''; el.body.value = '';
       el.title.disabled = el.body.disabled = false;
-      showEditor(); fitBody(); renderShots(); renderStamp();
+      showEditor(); fitBody(); renderShots(); renderStamp(); renderEditing();
 
       const url = new URL(`../posts/${slug}/`, location.href).href;
       const actions = `https://github.com/${conn.repo}/actions`;
@@ -532,7 +673,7 @@
   /* ---------- start ---------- */
   el.title.value = draft.title;
   el.body.value = draft.body;
-  renderStamp(); renderConn(); fitBody(); renderShots();
+  renderStamp(); renderConn(); renderEditing(); fitBody(); renderShots();
   addEventListener('resize', fitBody);
   if (!conn) el.settings.open = true;
   else if (draft.title || draft.body) setStatus('Picked up where you left off.');

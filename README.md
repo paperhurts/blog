@@ -42,7 +42,7 @@ Posts written between midnight and 4 am stay at the end of the night before, ins
 
 ### From your phone
 
-https://paperhurts.com/write/ is a composer you save to the home screen. It posts straight to this repo with a fine-grained GitHub token (this repo only, Contents read and write) that stays on the phone. Drafts stay on the phone as well. Each post, photos included, is a single commit authored with the account's no-reply address. Photos land in `public/images/`: shrunk to JPEG, except that anything with transparency stays PNG, and small PNGs and GIFs go up untouched. **Preview** renders the post with the site's own markdown rules (`src/markdown.js`), shows photos that haven't been posted yet, and flags any `[[link]]` that doesn't match a post.
+https://paperhurts.com/write/ is a composer you save to the home screen. It posts straight to this repo with a fine-grained GitHub token (this repo only, Contents read and write) that stays on the phone. Drafts stay on the phone as well. Each post, photos included, is a single commit authored with the account's no-reply address. Photos land in `public/images/`: shrunk to JPEG, except that anything with transparency stays PNG, and small PNGs and GIFs go up untouched. **Preview** renders the post with the site's own markdown rules (`src/markdown.js`), shows photos that haven't been posted yet, and flags any `[[link]]` that doesn't match a post. **Edit a post** opens any published post in the composer. Saving changes only the title or time line it has to, leaves the rest of the front matter alone, keeps the post's address, and asks first if the file changed on GitHub since it was opened.
 
 ### Linking between posts
 

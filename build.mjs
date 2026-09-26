@@ -302,7 +302,7 @@ ${stream}<footer class="night col" data-hour="${hourAttr(night)}">
   await write('assets/markdown.js', await fs.readFile(P('src', 'markdown.js'), 'utf8'));
   const markedEsm = await fs.readFile(P('node_modules', 'marked', 'lib', 'marked.esm.js'), 'utf8');
   await write('assets/marked.esm.js', markedEsm.replace(/\n\/\/# sourceMappingURL=\S*\s*$/, '\n'));
-  await write('assets/posts.json', JSON.stringify(posts.map(p => ({ slug: p.slug, title: p.title }))));
+  await write('assets/posts.json', JSON.stringify(posts.map(p => ({ slug: p.slug, title: p.title, file: p.file, date: iso(p.when) }))));
   await write('.nojekyll', '');
   await write('index.html', page({ title: site.title, at: '/', hour: dawn, body: homeBody }));
 
