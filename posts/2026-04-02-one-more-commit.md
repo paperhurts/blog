@@ -1,7 +1,6 @@
 ---
 title: One more commit
 date: 2026-04-02 01:10
-draft: true
 ---
 
 Nothing good has ever been committed at one in the morning. I say this as someone who has committed a great deal at one in the morning.

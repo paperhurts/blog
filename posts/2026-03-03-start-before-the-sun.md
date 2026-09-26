@@ -1,7 +1,6 @@
 ---
 title: Start before the sun
 date: 2026-03-03 06:24
-draft: true
 ---
 
 There's a quiet at six in the morning that belongs to whoever shows up first. It isn't productive quiet. It's permissive quiet: nothing has asked for you yet, and nothing has broken. Most of what I like about my days, I can trace back to protecting about forty minutes of it.

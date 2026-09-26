@@ -14,8 +14,6 @@ npm run dev      # http://localhost:4321, shows drafts, reloads when you save
 npm run build    # writes the finished site to dist/
 ```
 
-The posts in `posts/` right now are the design's samples. They're marked `draft: true`, so they show up in `npm run dev` and stay out of the published site. Delete them once real posts exist.
-
 ## Write a post
 
 Add a markdown file to `posts/`. The filename becomes the URL, so `posts/2026-09-09-after-the-storm.md` lives at `/posts/after-the-storm/`.
