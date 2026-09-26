@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Volumetric clouds</title>
+<style>
+  :root{
+    --bg:#0b1016;
+    --panel:#131a22;
+    --line:#243040;
+    --ink:#e6ecf2;
+    --dim:#7d8fa3;
+    --gold:#e5b45c;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;}
+  .wrap{max-width:760px;margin:0 auto;padding-bottom:3rem;}
+
+  .sky{position:relative;width:100%;aspect-ratio:4/3;background:#1b2735;overflow:hidden;}
+  @media(min-width:620px){.sky{aspect-ratio:16/10;}}
+  canvas{display:block;width:100%;height:100%;}
+  .fps{position:absolute;top:.5rem;right:.6rem;font-size:.68rem;color:rgba(255,255,255,.55);
+    font-variant-numeric:tabular-nums;text-shadow:0 1px 3px rgba(0,0,0,.6);}
+
+  .big{margin:1rem .9rem 1.4rem;padding:.9rem 1rem;border:1px solid var(--line);
+    background:var(--panel);}
+  .big label{display:flex;justify-content:space-between;align-items:baseline;
+    font-size:.87rem;margin-bottom:.15rem;}
+  .big .val{font-size:.76rem;color:var(--gold);font-variant-numeric:tabular-nums;}
+  .big p{margin:.4rem 0 0;font-size:.75rem;line-height:1.55;color:var(--dim);}
+
+  .panel{padding:0 .9rem;}
+  .ctl{margin-bottom:1rem;}
+  .ctl .row{display:flex;justify-content:space-between;align-items:baseline;
+    font-size:.82rem;color:#c3d1de;margin-bottom:.1rem;}
+  .ctl .row span{font-size:.75rem;color:var(--dim);font-variant-numeric:tabular-nums;}
+  .ctl p{margin:.15rem 0 0;font-size:.72rem;line-height:1.5;color:var(--dim);}
+
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:22px;
+    background:transparent;margin:0;}
+  input[type=range]::-webkit-slider-runnable-track{height:2px;background:var(--line);}
+  input[type=range]::-moz-range-track{height:2px;background:var(--line);}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:17px;height:17px;
+    border-radius:50%;background:var(--gold);border:none;margin-top:-8px;
+    box-shadow:0 0 0 5px rgba(229,180,92,.13);}
+  input[type=range]::-moz-range-thumb{width:17px;height:17px;border-radius:50%;
+    background:var(--gold);border:none;}
+  input[type=range]:focus-visible{outline:2px solid var(--gold);outline-offset:6px;}
+
+  .presets{display:flex;flex-wrap:wrap;gap:.45rem;padding:.9rem .9rem 1rem;}
+  .presets button{font:inherit;font-size:.79rem;color:#c3d1de;background:var(--panel);
+    border:1px solid var(--line);border-radius:999px;padding:.42rem .85rem;cursor:pointer;}
+  .presets button:hover{border-color:#37485e;}
+  .presets button[aria-pressed=true]{background:var(--gold);border-color:var(--gold);color:#141a12;}
+  .presets button:focus-visible{outline:2px solid var(--gold);outline-offset:3px;}
+
+  .note{padding:.4rem .9rem 0;font-size:.79rem;line-height:1.7;color:#9fb1c2;}
+  .note p{margin:0 0 .85rem;}
+  .note strong{color:var(--ink);font-weight:600;}
+  .fail{padding:2rem 1rem;color:#e8b0a0;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="sky">
+    <canvas id="cv"></canvas>
+    <div class="fps" id="fps"></div>
+  </div>
+
+  <div class="presets" id="presets">
+    <button data-p="fair" aria-pressed="true">Fair weather</button>
+    <button data-p="shelf">Storm shelf</button>
+    <button data-p="stratus">Overcast</button>
+    <button data-p="towers">Towers at sunset</button>
+    <button data-p="gust">I-95 gust front</button>
+  </div>
+
+  <div class="big">
+    <label for="ms">Multiple scattering <span class="val" id="v-ms"></span></label>
+    <input type="range" id="ms" min="0" max="1" step="0.01" value="1">
+    <p>Drag this to zero. Single scattering only — every photon allowed exactly one bounce. That's dirty grey smoke, and it's what almost every first cloud renderer produces. Everything white about a cloud is light that bounced more than once.</p>
+  </div>
+
+  <div class="panel">
+    <div class="ctl">
+      <div class="row"><label for="cov">Coverage</label><span id="v-cov"></span></div>
+      <input type="range" id="cov" min="0.15" max="0.85" step="0.01" value="0.42">
+    </div>
+
+    <div class="ctl">
+      <div class="row"><label for="type">Stratus &rarr; anvil</label><span id="v-type"></span></div>
+      <input type="range" id="type" min="0" max="1" step="0.01" value="0.55">
+      <p>The height gradient. Low values keep density flat and near the cloud base; high values let it build tall and spread out at the top.</p>
+    </div>
+
+    <div class="ctl">
+      <div class="row"><label for="erode">Edge erosion</label><span id="v-erode"></span></div>
+      <input type="range" id="erode" min="0" max="1" step="0.01" value="0.45">
+      <p>High-frequency noise subtracted from the low-density regions only. Cores stay solid, edges get eaten into wisps.</p>
+    </div>
+
+    <div class="ctl">
+      <div class="row"><label for="wind">Wind</label><span id="v-wind"></span></div>
+      <input type="range" id="wind" min="0" max="4" step="0.05" value="1">
+      <p>Pure translation. The field slides past and nothing about it changes.</p>
+    </div>
+
+    <div class="ctl">
+      <div class="row"><label for="conv">Convection</label><span id="v-conv"></span></div>
+      <input type="range" id="conv" min="0" max="3" step="0.05" value="0.5">
+      <p>The boil. Detail noise scrolls upward through the cloud while the base shape walks sideways through the field &mdash; so the cloud changes rather than moves. Set wind to zero and this to 2 to see it alone: dead calm air, cloud still churning.</p>
+    </div>
+
+    <div class="ctl">
+      <div class="row"><label for="sun">Sun height</label><span id="v-sun"></span></div>
+      <input type="range" id="sun" min="-4" max="60" step="0.5" value="14">
+    </div>
+
+    <div class="ctl">
+      <div class="row"><label for="g">Forward scattering</label><span id="v-g"></span></div>
+      <input type="range" id="g" min="0" max="0.92" step="0.01" value="0.72">
+      <p>The Henyey&ndash;Greenstein phase term. Water droplets throw light strongly forward, which is why clouds glow when you look toward the sun and go flat when it's behind you. This is the silver lining.</p>
+    </div>
+
+    <div class="ctl">
+      <div class="row"><label for="q">Quality</label><span id="v-q"></span></div>
+      <input type="range" id="q" min="0.28" max="0.75" step="0.01" value="0.42">
+      <p>Internal render scale. Turn it down if it stutters &mdash; volumetrics are expensive and this is running on your phone.</p>
+    </div>
+  </div>
+
+  <div class="note">
+    <p><strong>What's running:</strong> a ray per pixel marched through a slab of noise. At every step it samples density, then fires a second short ray at the sun to measure how much cloud is in the way. That inner loop is why this costs a hundred times what the water did.</p>
+    <p>The sun ray gives an optical depth &tau;. Single scattering turns that into brightness with one exponential, <strong>exp(&minus;&tau;&sigma;)</strong>, and gets smoke. The multiple-scattering slider adds two more exponentials with lower extinction and lower weight &mdash; three terms standing in for hundreds of real bounces. It's a cheat with a paper behind it, and it's the entire difference between grey and white.</p>
+  </div>
+</div>
+
+<script id="vs" type="x-shader/x-vertex">
+attribute vec2 a; void main(){ gl_Position = vec4(a,0.0,1.0); }
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+precision highp float;
+
+uniform vec2  uRes;
+uniform float uTime, uCov, uType, uErode, uSunEl, uG, uMS, uWind, uConv;
+
+const float BOT = 340.0;
+const float TOP = 1000.0;
+const float SIGMA = 0.055;
+
+float hash(vec3 p){
+  p = fract(p*0.3183099 + vec3(0.71,0.113,0.419));
+  p *= 17.0;
+  return fract(p.x*p.y*p.z*(p.x+p.y+p.z));
+}
+float vnoise(vec3 x){
+  vec3 i = floor(x), f = fract(x);
+  f = f*f*(3.0-2.0*f);
+  return mix(
+    mix(mix(hash(i+vec3(0,0,0)), hash(i+vec3(1,0,0)), f.x),
+        mix(hash(i+vec3(0,1,0)), hash(i+vec3(1,1,0)), f.x), f.y),
+    mix(mix(hash(i+vec3(0,0,1)), hash(i+vec3(1,0,1)), f.x),
+        mix(hash(i+vec3(0,1,1)), hash(i+vec3(1,1,1)), f.x), f.y), f.z);
+}
+
+vec3 sunDir(){
+  float e = radians(uSunEl);
+  return normalize(vec3(0.62*cos(e), sin(e), -0.78*cos(e)));
+}
+
+// where in the slab, 0 at base, 1 at top
+float hFrac(vec3 p){ return clamp((p.y - BOT)/(TOP - BOT), 0.0, 1.0); }
+
+// density profile with height: flat sheet -> tall tower -> spreading anvil
+float heightGrad(float h){
+  float t = uType;
+  float b = smoothstep(0.0, mix(0.05, 0.24, t), h);
+  float u = smoothstep(mix(0.26, 1.02, t), mix(0.10, 0.58, t), h);
+  return b * u;
+}
+
+float cloudBase(vec3 p){
+  vec3 q = p * 0.0016 + vec3(uTime*0.026*uWind, 0.0, uTime*0.011*uWind);
+  // convection: walk the sample point through the field so the shape itself
+  // changes instead of merely sliding past
+  q += vec3(0.0, uTime*0.011*uConv, uTime*0.017*uConv);
+  float n = vnoise(q)*0.62 + vnoise(q*2.9)*0.31;
+  n /= 0.93;
+  float d = smoothstep(1.0 - uCov, 1.0 - uCov + 0.34, n);
+  return d * heightGrad(hFrac(p));
+}
+
+float cloudFull(vec3 p){
+  float d = cloudBase(p);
+  if(d <= 0.001) return 0.0;
+  vec3 q = p * 0.0125 + vec3(uTime*0.10*uWind, -uTime*0.16*uConv, uTime*0.02*uWind);
+  float billow = 1.0 - abs(2.0*vnoise(q) - 1.0);
+  d -= billow * uErode * (1.0 - d) * 0.85;
+  return max(d, 0.0);
+}
+
+// optical depth toward the sun
+float lightDepth(vec3 p){
+  vec3 ld = sunDir();
+  float tau = 0.0, s = 55.0, t = 0.0;
+  for(int i=0;i<4;i++){
+    t += s;
+    tau += cloudBase(p + ld*t) * s;
+    s *= 1.75;
+  }
+  return tau;
+}
+
+float hg(float c, float g){
+  float g2 = g*g;
+  return (1.0 - g2) / (12.5664 * pow(max(1.0 + g2 - 2.0*g*c, 0.0001), 1.5));
+}
+
+// three Beer terms standing in for many bounces
+float scatter(float tau){
+  float e = exp(-tau * SIGMA);
+  float m = 0.55 * exp(-tau * SIGMA * 0.34)
+          + 0.28 * exp(-tau * SIGMA * 0.11);
+  return e + uMS * m;
+}
+
+vec3 skyGradient(vec3 d){
+  float h = clamp(d.y, 0.0, 1.0);
+  vec3 zenith = vec3(0.16, 0.34, 0.62);
+  vec3 horiz  = vec3(0.66, 0.72, 0.78);
+  float el = clamp(uSunEl/45.0, 0.0, 1.0);
+  horiz = mix(vec3(0.86, 0.62, 0.38), horiz, el);   // warm near sunset
+  vec3 c = mix(horiz, zenith, pow(h, 0.55));
+  float sd = max(dot(d, sunDir()), 0.0);
+  c += vec3(1.0, 0.85, 0.60) * pow(sd, 220.0) * 6.0;   // disc
+  c += vec3(1.0, 0.72, 0.42) * pow(sd, 6.0) * 0.30;    // glow
+  return c;
+}
+
+void main(){
+  vec2 uv = (gl_FragCoord.xy - 0.5*uRes)/uRes.y;
+  vec3 ro = vec3(0.0, 12.0, 0.0);
+  vec3 rd = normalize(vec3(uv.x, uv.y*0.86 + 0.07, -1.0));
+
+  vec3 sky = skyGradient(rd);
+  vec3 col = sky;
+
+  if(rd.y < 0.004){
+    // ground: dark prairie, hazy at the horizon
+    float g = smoothstep(0.004, -0.05, rd.y);
+    vec3 ground = mix(vec3(0.30,0.36,0.26), vec3(0.05,0.09,0.05), g);
+    col = mix(sky, ground, g);
+    gl_FragColor = vec4(pow(col, vec3(0.4545)), 1.0);
+    return;
+  }
+
+  float t0 = (BOT - ro.y)/rd.y;
+  float t1 = (TOP - ro.y)/rd.y;
+  t1 = min(t1, t0 + 4200.0);
+
+  float steps = 46.0;
+  float dt = (t1 - t0)/steps;
+  float t = t0 + dt * hash(vec3(gl_FragCoord.xy, 1.0));   // dither out the banding
+
+  vec3 sun = vec3(1.0, 0.92, 0.80) * (1.6 + 1.4*smoothstep(0.0, 30.0, uSunEl));
+  vec3 amb = mix(vec3(0.30,0.38,0.50), vec3(0.52,0.56,0.62), 0.5);
+  float cosT = dot(rd, sunDir());
+  float phase = mix(hg(cosT, uG), hg(cosT, -0.18), 0.32) * 9.0 + 0.09;
+
+  vec3 acc = vec3(0.0);
+  float T = 1.0;
+
+  for(int i=0;i<46;i++){
+    if(t > t1 || T < 0.012) break;
+    vec3 p = ro + rd*t;
+
+    float cheap = cloudBase(p);
+    if(cheap < 0.003){ t += dt*2.0; continue; }   // skip the empty parts
+
+    float d = cloudFull(p);
+    if(d > 0.003){
+      float tau = lightDepth(p);
+      float energy = scatter(tau) * phase;
+      float powder = 1.0 - exp(-d * SIGMA * dt * 3.0);
+      vec3 S = sun * energy * mix(1.0, powder, 0.55) + amb * (0.30 + 0.55*hFrac(p));
+
+      float ext = d * SIGMA * dt;
+      float Ti = exp(-ext);
+      acc += T * (1.0 - Ti) * S;
+      T *= Ti;
+    }
+    t += dt;
+  }
+
+  col = sky * T + acc;
+
+  // horizon haze so the slab doesn't end in a hard line
+  col = mix(col, sky, smoothstep(0.075, 0.0, rd.y));
+
+  col = col / (1.0 + col*0.42);           // soft highlight rolloff
+  gl_FragColor = vec4(pow(max(col,0.0), vec3(0.4545)), 1.0);
+}
+</script>
+
+<script>
+(function(){
+  const cv = document.getElementById('cv');
+  const gl = cv.getContext('webgl') || cv.getContext('experimental-webgl');
+  if(!gl){
+    document.querySelector('.sky').innerHTML = '<div class="fail">This one needs WebGL.</div>';
+    return;
+  }
+  function sh(type, src){
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s));
+    return s;
+  }
+  const prog = gl.createProgram();
+  gl.attachShader(prog, sh(gl.VERTEX_SHADER, document.getElementById('vs').textContent));
+  gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, document.getElementById('fs').textContent));
+  gl.linkProgram(prog); gl.useProgram(prog);
+
+  const b = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+  const al = gl.getAttribLocation(prog,'a');
+  gl.enableVertexAttribArray(al);
+  gl.vertexAttribPointer(al, 2, gl.FLOAT, false, 0, 0);
+
+  const U = {};
+  ['uRes','uTime','uCov','uType','uErode','uSunEl','uG','uMS','uWind','uConv']
+    .forEach(k => U[k] = gl.getUniformLocation(prog,k));
+
+  const ids = ['ms','cov','type','erode','wind','conv','sun','g','q'];
+  const el = {}; ids.forEach(i => el[i] = document.getElementById(i));
+
+  function labels(){
+    document.getElementById('v-ms').textContent    = el.ms.value == 0 ? 'off — single scattering' : (el.ms.value*100).toFixed(0)+'%';
+    document.getElementById('v-cov').textContent   = (el.cov.value*100).toFixed(0)+'%';
+    document.getElementById('v-type').textContent  = (+el.type.value).toFixed(2);
+    document.getElementById('v-erode').textContent = (el.erode.value*100).toFixed(0)+'%';
+    document.getElementById('v-wind').textContent  = el.wind.value == 0 ? 'still' : (+el.wind.value).toFixed(2)+'\u00D7';
+    document.getElementById('v-conv').textContent  = el.conv.value == 0 ? 'off — pure translation' : (+el.conv.value).toFixed(2)+'\u00D7';
+    document.getElementById('v-sun').textContent   = (+el.sun.value).toFixed(1)+'\u00B0';
+    document.getElementById('v-g').textContent     = (+el.g.value).toFixed(2);
+    document.getElementById('v-q').textContent     = (el.q.value*100).toFixed(0)+'%';
+  }
+  ids.forEach(i => el[i].addEventListener('input', () => {
+    labels();
+    if(i !== 'q') document.querySelectorAll('#presets button')
+      .forEach(x => x.setAttribute('aria-pressed','false'));
+  }));
+
+  const P = {
+    fair:    {ms:1.00, cov:0.36, type:0.58, erode:0.50, sun:34, g:0.70, wind:0.7, conv:0.45},
+    shelf:   {ms:1.00, cov:0.72, type:0.92, erode:0.35, sun:9,  g:0.82, wind:1.5, conv:1.10},
+    stratus: {ms:1.00, cov:0.66, type:0.06, erode:0.28, sun:22, g:0.55, wind:0.5, conv:0.15},
+    towers:  {ms:1.00, cov:0.44, type:0.86, erode:0.55, sun:4,  g:0.86, wind:0.6, conv:1.40},
+    gust:    {ms:1.00, cov:0.80, type:0.88, erode:0.62, sun:6,  g:0.88, wind:3.2, conv:2.30}
+  };
+  document.querySelectorAll('#presets button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const p = P[btn.dataset.p];
+      for(const k in p) el[k].value = p[k];
+      document.querySelectorAll('#presets button').forEach(x => x.setAttribute('aria-pressed','false'));
+      btn.setAttribute('aria-pressed','true');
+      labels();
+    });
+  });
+
+  function resize(){
+    const q = +el.q.value;
+    const w = Math.max(1, Math.round(cv.clientWidth * q));
+    const h = Math.max(1, Math.round(cv.clientHeight * q));
+    if(cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+    gl.viewport(0,0,cv.width,cv.height);
+  }
+  window.addEventListener('resize', resize);
+  el.q.addEventListener('input', resize);
+
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const t0 = performance.now();
+  let frames = 0, mark = t0;
+  const fpsEl = document.getElementById('fps');
+
+  function loop(now){
+    resize();
+    gl.uniform2f(U.uRes, cv.width, cv.height);
+    gl.uniform1f(U.uTime, reduced ? 20.0 : (now - t0)/1000);
+    gl.uniform1f(U.uCov,   +el.cov.value);
+    gl.uniform1f(U.uType,  +el.type.value);
+    gl.uniform1f(U.uErode, +el.erode.value);
+    gl.uniform1f(U.uSunEl, +el.sun.value);
+    gl.uniform1f(U.uG,     +el.g.value);
+    gl.uniform1f(U.uMS,    +el.ms.value);
+    gl.uniform1f(U.uWind,  +el.wind.value);
+    gl.uniform1f(U.uConv,  +el.conv.value);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    frames++;
+    if(now - mark > 700){
+      fpsEl.textContent = Math.round(frames*1000/(now-mark)) + ' fps';
+      frames = 0; mark = now;
+    }
+    requestAnimationFrame(loop);
+  }
+  labels(); resize(); requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

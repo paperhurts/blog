@@ -50,6 +50,16 @@ Posts written between midnight and 4 am stay at the end of the night before, ins
 
 Put them in `public/` and link from the site root: `![Porch at dusk](/images/porch.jpg)` for `public/images/porch.jpg`. Everything in `public/` is copied into the site as-is.
 
+### Demos
+
+A little project that's a single HTML page can run inside a post. Put the page in `public/demos/` and embed it with image syntax on a line by itself:
+
+```md
+![Plasma, 320×240, 256 colors](/demos/plasma.html)
+```
+
+It renders as a live frame across the full width of the pane, sized to fit the page, with the alt text as its caption and a link to open it on its own. The demo page doesn't need any changes. It just has to live on the same site, which is what lets the frame measure it. Everything in `public/demos/` publishes even when the post that embeds it is still a draft.
+
 ## Configure
 
 `site.config.json`:

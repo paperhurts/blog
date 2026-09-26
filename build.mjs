@@ -167,6 +167,14 @@ async function build({ drafts = false, dev = false } = {}) {
   const backlinks = new Map(posts.map(p => [p, new Set()]));
   let current = null;
 
+  // ![caption](/demos/plasma.html) embeds a live page instead of an image
+  const isDemo = href => /\.html?(?:[?#].*)?$/i.test(href || '');
+  const demo = (href, text) => {
+    const src = esc(fixUrl(href));
+    return `<figure class="demo"><iframe src="${src}" title="${esc(text || 'Demo')}" loading="lazy"></iframe>` +
+      `<figcaption>${text ? `${esc(text)}. ` : ''}<a href="${src}">Open it on its own page</a></figcaption></figure>`;
+  };
+
   const md = new Marked({ gfm: true });
   md.use({
     renderer: {
@@ -174,10 +182,17 @@ async function build({ drafts = false, dev = false } = {}) {
         const d = Math.min(6, depth + 1); // the post title is the page's h1
         return `<h${d}>${this.parser.parseInline(tokens)}</h${d}>\n`;
       },
+      paragraph({ tokens }) {
+        // a demo on a line by itself is a figure, and a figure can't sit inside <p>
+        const solo = tokens.filter(t => t.type !== 'text' || t.text.trim());
+        if (solo.length === 1 && solo[0].type === 'image' && isDemo(solo[0].href)) return this.parser.parseInline(solo) + '\n';
+        return `<p>${this.parser.parseInline(tokens)}</p>\n`;
+      },
       link({ href, title, tokens }) {
         return `<a href="${esc(fixUrl(href))}"${title ? ` title="${esc(title)}"` : ''}>${this.parser.parseInline(tokens)}</a>`;
       },
       image({ href, title, text }) {
+        if (isDemo(href)) return demo(href, text);
         return `<img src="${esc(fixUrl(href))}" alt="${esc(text)}"${title ? ` title="${esc(title)}"` : ''} loading="lazy">`;
       },
     },
@@ -228,6 +243,19 @@ async function build({ drafts = false, dev = false } = {}) {
   const cssHref = `${url('/assets/style.css')}?v=${hash(css)}`;
   const jsHref = `${url('/assets/sky.js')}?v=${hash(js)}`;
 
+  // Demos are same-origin pages, so each frame can grow to fit what it holds. A fitted
+  // frame hides its scrollbar, which would otherwise narrow the page and change its
+  // height. The cap stops a page whose height follows its own viewport from growing forever.
+  const fitDemos = `for (const f of document.querySelectorAll('.demo iframe')) f.addEventListener('load', () => {
+  const d = f.contentDocument?.documentElement;
+  if (d) new ResizeObserver(() => {
+    const h = d.offsetHeight, max = innerHeight * 3;
+    if (!h) return;
+    d.style.overflow = h > max ? '' : 'hidden';
+    f.style.height = Math.min(h, max) + 'px';
+  }).observe(d);
+});`;
+
   const page = ({ title, description = site.description || site.tagline, at, hour, body, type = 'website' }) => `<!doctype html>
 <html lang="en">
 <head>
@@ -254,7 +282,7 @@ ${description ? `<meta name="description" content="${esc(description)}">\n` : ''
 </div>
 <main class="page">
 ${body}
-</main>
+</main>${body.includes('class="demo"') ? `\n<script>${fitDemos}</script>` : ''}
 <script src="${jsHref}" defer></script>${dev ? `\n<script>new EventSource('/__reload').onmessage = () => location.reload();</script>` : ''}
 </body>
 </html>

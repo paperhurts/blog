@@ -54,7 +54,7 @@ a:focus-visible,button:focus-visible{outline:2px solid currentColor;outline-offs
 .interlude p{margin:.55em 0 0;font-style:italic;font-size:1.05em;text-shadow:0 1px .8em var(--sky-halo)}
 
 /* A pane of frosted glass per part of the day; light falls on it from wherever the sun or moon is */
-.pane{background:linear-gradient(var(--light-angle),var(--glow),transparent 62%),var(--pane);-webkit-backdrop-filter:blur(18px) saturate(1.25);backdrop-filter:blur(18px) saturate(1.25);border:1px solid var(--pane-edge);border-radius:4px;padding:clamp(1.75rem,5vw,3.25rem) clamp(1.25rem,5vw,3.25rem)}
+.pane{background:linear-gradient(var(--light-angle),var(--glow),transparent 62%),var(--pane);-webkit-backdrop-filter:blur(18px) saturate(1.25);backdrop-filter:blur(18px) saturate(1.25);border:1px solid var(--pane-edge);border-radius:4px;--pane-x:clamp(1.25rem,5vw,3.25rem);padding:clamp(1.75rem,5vw,3.25rem) var(--pane-x)}
 .post{padding-block:clamp(2.5rem,9vh,4.75rem)}
 .post:first-child{padding-top:0}
 .post:last-child{padding-bottom:0}
@@ -113,6 +113,11 @@ button.chip:hover{background:linear-gradient(var(--rule),var(--rule)),var(--pane
 .prose hr{border:0;border-top:1px solid var(--rule);margin:2.5em 0}
 .prose table{display:block;overflow-x:auto;border-collapse:collapse}
 .prose th,.prose td{text-align:left;padding:.45em .9em .45em 0;border-bottom:1px solid var(--rule)}
+/* Demos: a live page, edge to edge across the pane like a screen set into the glass */
+.prose .demo{margin:2em calc(-1 * var(--pane-x))}
+.demo iframe{display:block;width:100%;height:min(80vh,40rem);border:0;background:#000}
+.demo figcaption{margin:.6em var(--pane-x) 0;font-style:italic;color:var(--muted);font-size:.9em}
+.demo figcaption a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:.2em}
 .wikilink-missing{text-decoration:underline dotted;text-underline-offset:.2em;opacity:.75}
 
 .backlinks{margin-top:3rem;padding-top:1.3rem;border-top:1px solid var(--rule)}
